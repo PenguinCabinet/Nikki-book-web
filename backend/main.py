@@ -38,6 +38,9 @@ class Nikki(SQLModel, table=True):
     date: datetime.date
     text: str = Field(default="")
 
+class Nikki_for_client(BaseModel):
+    text: str = Field(default="")
+
 sqlite_file_name = "database.db"
 sqlite_url = f"sqlite:///{sqlite_file_name}"
 
@@ -174,6 +177,45 @@ def nikki_to_json_for_client(v):
     }
 
 
+@app.put("/nikki/{date_str}", response_model=Nikki_for_client)
+async def read_nikki(
+    session: SessionDep,
+    current_user: Annotated[User, Depends(get_current_active_user)],
+    date_str: Annotated[str, Path(title="The date")],
+    nikki_for_client: Nikki_for_client
+):
+    try:
+        temp = datetime.datetime.strptime(date_str, '%Y-%m-%d')
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="The date format is incorrect.",
+        )
+    date=datetime.date(temp.year,temp.month,temp.day)
+
+    nikki = session.exec(select(Nikki).where(Nikki.user_id == current_user.id and Nikki.date==date)).all()
+    if nikki_for_client.text=="":
+        if len(nikki)==0:
+            #更新される日記に何も書いておらず、データベースに該当日記が存在しない場合、ダミーの空の日記データを返す
+            nikki=[Nikki(user_id=current_user.id,date=date)]
+        else:
+            #更新される日記に何も書いておらず、データベースに該当日記が存在する場合、Rowのテキストを空にしたうえで、Rowを削除する
+            nikki[0].text=nikki_for_client.text
+            session.delete(nikki[0])
+    else:
+        if len(nikki)==0:
+            #更新される日記に何か書かれており、データベースに該当日記が存在しない場合、Rowを新規作成する
+            nikki=[Nikki(user_id=current_user.id,date=date,text=nikki_for_client.text)]
+            session.add(nikki[0])
+        else:
+            #更新される日記に何か書かれており、データベースに該当日記が存在しない場合、Rowを更新する
+            nikki[0].text=nikki_for_client.text
+    
+    session.commit()
+            
+    return nikki_to_json_for_client(nikki[0])
+
+
 @app.get("/nikki/{date_str}")
 async def read_nikki(
     session: SessionDep,
@@ -189,7 +231,7 @@ async def read_nikki(
         )
     date=datetime.date(temp.year,temp.month,temp.day)
 
-    nikki = session.exec(select(User).where(Nikki.user_id == current_user.id and Nikki.date==date)).all()
+    nikki = session.exec(select(Nikki).where(Nikki.user_id == current_user.id and Nikki.date==date)).all()
 
     if len(nikki)==0:
         return nikki_to_json_for_client(Nikki(date=date))
