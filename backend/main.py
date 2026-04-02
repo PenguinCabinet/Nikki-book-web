@@ -32,6 +32,12 @@ class User(SQLModel, table=True):
     username: str
     hashed_password: str
 
+class Nikki(SQLModel, table=True):
+    id: int | None = Field(default=None, primary_key=True)
+    user_id: int | None
+    date: datetime.date
+    text: str = Field(default="")
+
 sqlite_file_name = "database.db"
 sqlite_url = f"sqlite:///{sqlite_file_name}"
 
@@ -161,3 +167,31 @@ async def read_own_items(
     current_user: Annotated[User, Depends(get_current_active_user)],
 ):
     return [{"item_id": "Foo", "owner": current_user.username}]
+
+def nikki_to_json_for_client(v):
+    return {
+        "text":v.text
+    }
+
+
+@app.get("/nikki/{date_str}")
+async def read_nikki(
+    session: SessionDep,
+    current_user: Annotated[User, Depends(get_current_active_user)],
+    date_str: Annotated[str, Path(title="The date")],
+):
+    try:
+        temp = datetime.datetime.strptime(date_str, '%Y-%m-%d')
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="The date format is incorrect.",
+        )
+    date=datetime.date(temp.year,temp.month,temp.day)
+
+    nikki = session.exec(select(User).where(Nikki.user_id == current_user.id and Nikki.date==date)).all()
+
+    if len(nikki)==0:
+        return nikki_to_json_for_client(Nikki(date=date))
+    else:
+        return nikki_to_json_for_client(nikki[0])
