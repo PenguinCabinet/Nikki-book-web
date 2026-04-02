@@ -24,7 +24,7 @@ function App() {
         })
         .then((data)=>{
             console.log(data)
-            setCookie("name", data);
+            setCookie("token", data);
         })
     }
 
