@@ -193,7 +193,7 @@ async def read_nikki(
         )
     date=datetime.date(temp.year,temp.month,temp.day)
 
-    nikki = session.exec(select(Nikki).where(Nikki.user_id == current_user.id and Nikki.date==date)).all()
+    nikki = session.exec(select(Nikki).where(Nikki.user_id == current_user.id , Nikki.date==date)).all()
     if nikki_for_client.text=="":
         if len(nikki)==0:
             #更新される日記に何も書いておらず、データベースに該当日記が存在しない場合、ダミーの空の日記データを返す
@@ -231,7 +231,8 @@ async def read_nikki(
         )
     date=datetime.date(temp.year,temp.month,temp.day)
 
-    nikki = session.exec(select(Nikki).where(Nikki.user_id == current_user.id and Nikki.date==date)).all()
+
+    nikki = session.exec(select(Nikki).where(Nikki.user_id == current_user.id , Nikki.date==date)).all()
 
     if len(nikki)==0:
         return nikki_to_json_for_client(Nikki(date=date))
