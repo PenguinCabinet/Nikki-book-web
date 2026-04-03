@@ -1,121 +1,124 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import heroImg from './assets/hero.png'
-import './App.css'
+import { useState } from 'react';
+import Button from 'react-bootstrap/Button';
+import Nav from 'react-bootstrap/Nav';
+import Tabs from 'react-bootstrap/Tabs';
+import Tab from 'react-bootstrap/Tab';
+import FloatingLabel from 'react-bootstrap/FloatingLabel';
+import Form from 'react-bootstrap/Form';
+import 'bootstrap/dist/css/bootstrap.min.css';
+import TextArea from './TextArea';
+import { useCookies } from "react-cookie";
 
-function App() {
-  const [count, setCount] = useState(0)
-
-  return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
-        </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.tsx</code> and save to test <code>HMR</code>
-          </p>
-        </div>
-        <button
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
-      </section>
-
-      <div className="ticks"></div>
-
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
-        </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
-
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
-  )
+function DatetoString(v:any) {
+    const day_string_arr = [
+        "(日)",
+        "(月)",
+        "(火)",
+        "(水)",
+        "(木)",
+        "(金)",
+        "(土)",
+    ];
+    return `${v.getFullYear()}年${v.getMonth() + 1}月${v.getDate()}日 ${day_string_arr[v.getDay()]}`
 }
 
-export default App
+function Nikki() {
+    const [cookies, setCookie, removeCookie] = useCookies(["token"]);
+
+    const [Nikki_data, setNikki_data] = useState('');
+    const [Loading, setLoading] = useState(false);
+
+    const [date, setDate] = useState(new Date());
+
+
+    async function setNikki_data_wrapper(v:string) {
+      await (await fetch(
+        `${import.meta.env.VITE_BACKEND_ORIGIN}/nikki/${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}`,
+        {
+          method: 'PUT',
+          body: JSON.stringify({ text:v}),
+          headers: {
+            'Authorization': 'Bearer '+cookies.token.access_token,
+            'Content-Type': 'application/json',
+          }
+        }
+      )).json();
+      setNikki_data(v)
+    }
+
+    async function Nikki_move_diff(m, d) {
+      setLoading(true)
+      let new_date = new Date(date.getTime())
+      new_date.setMonth(date.getMonth() + m)
+      new_date.setDate(date.getDate() + d)
+      setDate(new_date)
+
+      const result=await (await fetch(
+        `${import.meta.env.VITE_BACKEND_ORIGIN}/nikki/${new_date.getFullYear()}-${new_date.getMonth() + 1}-${new_date.getDate()}`,
+        {
+          method: 'GET',
+          headers: {
+            'Authorization': 'Bearer '+cookies.token.access_token,
+            'Content-Type': 'application/json',
+          }
+        }
+      )).json();
+      
+      setNikki_data(result["text"]);
+      setLoading(false)
+    }
+
+
+    return (
+        <div id="app" className="m-3">
+            <div className="my-3">
+                <Button
+                    className='mx-2'
+                    id="Nikki_move_prev_month"
+                    variant="outline-primary"
+                    onClick={() => { Nikki_move_diff(-1, 0) }}>
+                    ←←
+                </Button>
+                <Button
+                    id="Nikki_move_prev"
+                    className='mx-2'
+                    variant="outline-primary"
+                    onClick={() => { Nikki_move_diff(0, -1) }}>
+                    ←
+                </Button>
+                <Button
+                    id="Nikki_move_next"
+                    className='mx-2'
+                    variant="outline-primary"
+                    onClick={() => { Nikki_move_diff(0, 1) }}>
+                    →
+                </Button>
+                <Button
+                    id="Nikki_move_next_month"
+                    className='mx-2'
+                    variant="outline-primary"
+                    onClick={() => { Nikki_move_diff(1, 0) }}>
+                    →→
+                </Button>
+                <Button
+                    id="Nikki_move_today"
+                    className='mx-2'
+                    variant="outline-primary"
+                    onClick={() => { setDate(new Date()) }}
+                >
+                    Today
+                </Button>
+            </div>
+            <h1>{DatetoString(date)}</h1>
+            <div>
+                <TextArea
+                    data={Nikki_data}
+                    setData={setNikki_data_wrapper}
+                    Do_not_edit_flag={Loading}
+                />
+            </div>
+        </div>
+    )
+}
+
+export default Nikki
