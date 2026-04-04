@@ -37,8 +37,7 @@ function Nikki() {
 
     async function setNikki_data_wrapper(v:string) {
       await fetch_with_login(`/nikki/${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}`,'PUT',{ text:v},navigate,cookies)
-
-      
+     
       setNikki_data(v)
     }
 

@@ -26,7 +26,7 @@ export async function fetch_with_login(path:string,method:string,body:any,naviga
           }
         }
     ));
-    console.log(result.status)
+    
     if(result.status!=200){
         navigate('/login');
     }

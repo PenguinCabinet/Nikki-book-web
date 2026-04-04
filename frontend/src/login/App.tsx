@@ -2,9 +2,11 @@ import { useState } from 'react'
 import { Button } from 'react-bootstrap';
 import Form from 'react-bootstrap/Form';
 import { useCookies } from "react-cookie";
+import { useNavigate } from 'react-router-dom';
 
 function App() {
     const [cookies, setCookie, removeCookie] = useCookies(["token"]);
+    const navigate = useNavigate();
 
     const handleSubmit=(e: React.FormEvent<HTMLFormElement>)=>{
 
@@ -23,8 +25,8 @@ function App() {
             return response.json();
         })
         .then((data)=>{
-            console.log(data)
-            setCookie("token", data);
+          setCookie("token", data);
+          navigate('/');
         })
     }
 
