@@ -36,7 +36,15 @@ function Nikki() {
 
 
     async function setNikki_data_wrapper(v:string) {
-      fetch_with_login(`/nikki/${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}`,'PUT',{ text:v},navigate,cookies)
+      fetch_with_login(`/nikki/${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}`,
+        {
+          method: "PUT",
+          body:  JSON.stringify({ text:v}),
+          headers: {
+            'Authorization': 'Bearer '+cookies.token.access_token,
+            'Content-Type': "application/json",
+          }
+        },navigate,cookies)
      
       setNikki_data(v)
     }
@@ -48,7 +56,15 @@ function Nikki() {
       new_date.setDate(date.getDate() + d)
       setDate(new_date)
 
-      const result=await fetch_with_login(`/nikki/${new_date.getFullYear()}-${new_date.getMonth() + 1}-${new_date.getDate()}`,'GET',null,navigate,cookies)
+      const result=await fetch_with_login(`/nikki/${new_date.getFullYear()}-${new_date.getMonth() + 1}-${new_date.getDate()}`,
+        {
+          method: "GET",
+          headers: {
+            'Authorization': 'Bearer '+cookies.token.access_token,
+            'Content-Type': "application/json",
+          }
+        }
+        ,navigate,cookies)
       
       setNikki_data(result["text"]);
       setLoading(false)

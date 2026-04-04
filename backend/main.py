@@ -2,7 +2,12 @@ from typing import Annotated
 import datetime
 
 import jwt
-from fastapi import Depends, FastAPI, HTTPException, status, Path, Query
+import io
+import zipfile
+import re
+import os
+
+from fastapi import Depends, FastAPI, HTTPException, status, Path, Query, File, UploadFile
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from jwt.exceptions import InvalidTokenError
 from pwdlib import PasswordHash
@@ -238,3 +243,46 @@ async def read_nikki(
         return nikki_to_json_for_client(Nikki(date=date))
     else:
         return nikki_to_json_for_client(nikki[0])
+
+def nikki_zip_fname_parser(v:str):
+    temp = datetime.datetime.strptime(v, '%Y年%-m月%-d日')
+
+    return datetime.date(temp.year, temp.month, temp.day)
+
+from fastapi.exceptions import RequestValidationError
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request, exc):
+    print(exc.errors())
+    raise exc
+
+@app.post("/nikki-zip")
+async def nikki_upload_zip(
+    session: SessionDep,
+    current_user: Annotated[User, Depends(get_current_active_user)],
+    file: UploadFile = File(...)
+):   
+    zip_buffer = io.BytesIO(await file.read())
+    
+    with zipfile.ZipFile(zip_buffer) as z:
+        for filename in z.namelist():
+            if filename.endswith(".txt"):
+                with z.open(filename) as f:
+                    #print(filename)
+                    try:
+                        date=nikki_zip_fname_parser(os.path.splitext(os.path.basename(filename))[0])
+                        nikki_text_zip = f.read().decode("utf-8")
+
+                        nikki = session.exec(select(Nikki).where(Nikki.user_id == current_user.id , Nikki.date==date)).all()
+                        if len(nikki)==0:
+                            session.add(Nikki(user_id=current_user.id,date=date,text=nikki_text_zip))
+                        else:
+                            nikki[0].text=nikki_text_zip
+
+                    except ValueError:
+                        pass
+    
+    session.commit()
+    
+    return {}
+
