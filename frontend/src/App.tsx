@@ -8,6 +8,8 @@ import Form from 'react-bootstrap/Form';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import TextArea from './TextArea';
 import { useCookies } from "react-cookie";
+import {fetch_with_login} from "./common/util"
+import { useNavigate } from 'react-router-dom';
 
 function DatetoString(v:any) {
     const day_string_arr = [
@@ -25,6 +27,8 @@ function DatetoString(v:any) {
 function Nikki() {
     const [cookies, setCookie, removeCookie] = useCookies(["token"]);
 
+    const navigate = useNavigate();
+
     const [Nikki_data, setNikki_data] = useState('');
     const [Loading, setLoading] = useState(false);
 
@@ -32,17 +36,9 @@ function Nikki() {
 
 
     async function setNikki_data_wrapper(v:string) {
-      await (await fetch(
-        `${import.meta.env.VITE_BACKEND_ORIGIN}/nikki/${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}`,
-        {
-          method: 'PUT',
-          body: JSON.stringify({ text:v}),
-          headers: {
-            'Authorization': 'Bearer '+cookies.token.access_token,
-            'Content-Type': 'application/json',
-          }
-        }
-      )).json();
+      await fetch_with_login(`/nikki/${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}`,'PUT',{ text:v},navigate,cookies)
+
+      
       setNikki_data(v)
     }
 
@@ -53,16 +49,7 @@ function Nikki() {
       new_date.setDate(date.getDate() + d)
       setDate(new_date)
 
-      const result=await (await fetch(
-        `${import.meta.env.VITE_BACKEND_ORIGIN}/nikki/${new_date.getFullYear()}-${new_date.getMonth() + 1}-${new_date.getDate()}`,
-        {
-          method: 'GET',
-          headers: {
-            'Authorization': 'Bearer '+cookies.token.access_token,
-            'Content-Type': 'application/json',
-          }
-        }
-      )).json();
+      const result=await fetch_with_login(`/nikki/${new_date.getFullYear()}-${new_date.getMonth() + 1}-${new_date.getDate()}`,'GET',null,navigate,cookies)
       
       setNikki_data(result["text"]);
       setLoading(false)
