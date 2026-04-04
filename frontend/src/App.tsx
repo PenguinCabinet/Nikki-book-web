@@ -42,7 +42,7 @@ function Nikki() {
       setNikki_data(v)
     }
 
-    async function Nikki_move_diff(m, d) {
+    async function Nikki_move_diff(m:number, d:number) {
       setLoading(true)
       let new_date = new Date(date.getTime())
       new_date.setMonth(date.getMonth() + m)
