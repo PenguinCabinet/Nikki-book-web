@@ -8,15 +8,13 @@ function App() {
     const [cookies, setCookie, removeCookie] = useCookies(["token"]);
     const navigate = useNavigate();
 
-    console.log("MODE:", import.meta.env.MODE);
-
     const handleSubmit=(e: React.FormEvent<HTMLFormElement>)=>{
 
         e.preventDefault();
     
         const formData = new FormData(e.currentTarget);     
         
-        fetch('http://127.0.0.1:8000/token', {
+        fetch(`${import.meta.env.VITE_BACKEND_ORIGIN}/token`, {
             method: 'POST',
             body: formData,
         })
