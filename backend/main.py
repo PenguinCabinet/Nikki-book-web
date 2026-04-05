@@ -162,26 +162,6 @@ async def login_for_access_token(
     )
     return Token(access_token=access_token, token_type="bearer")
 
-
-@app.get("/users/me/")
-async def read_users_me(
-    current_user: Annotated[User, Depends(get_current_active_user)],
-) -> User:
-    return current_user
-
-
-@app.get("/users/me/items/")
-async def read_own_items(
-    current_user: Annotated[User, Depends(get_current_active_user)],
-):
-    return [{"item_id": "Foo", "owner": current_user.username}]
-
-def nikki_to_json_for_client(v):
-    return {
-        "text":v.text
-    }
-
-
 @app.put("/nikki/{date_str}", response_model=Nikki_for_client)
 async def read_nikki(
     session: SessionDep,
