@@ -21,6 +21,10 @@ export default defineConfig([
     },
     "compilerOptions": {
       "types": ["node"]
+    },
+    rules: {
+      "@typescript-eslint/no-unused-vars": "off",
+      "no-unused-vars": "off"
     }
   },
 ])

@@ -12,7 +12,7 @@ function App() {
 
         e.preventDefault();
     
-        const formData = new FormData(e.target);     
+        const formData = new FormData(e.currentTarget);     
         
         fetch('http://127.0.0.1:8000/token', {
             method: 'POST',

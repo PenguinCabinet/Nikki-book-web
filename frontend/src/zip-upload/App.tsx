@@ -1,9 +1,4 @@
-import { useState } from 'react';
 import Button from 'react-bootstrap/Button';
-import Nav from 'react-bootstrap/Nav';
-import Tabs from 'react-bootstrap/Tabs';
-import Tab from 'react-bootstrap/Tab';
-import FloatingLabel from 'react-bootstrap/FloatingLabel';
 import Form from 'react-bootstrap/Form';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import { useCookies } from "react-cookie";
@@ -19,7 +14,7 @@ function nikki_zip_upload() {
 
         e.preventDefault();
     
-        const formData = new FormData(e.target); 
+        const formData = new FormData(e.currentTarget); 
         
         fetch_with_login("/nikki-zip",
         {
