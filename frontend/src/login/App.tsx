@@ -33,9 +33,11 @@ function App() {
   return (
     <>
     <Form onSubmit={handleSubmit}>
-      <Form.Text id="passwordHelpBlock" >
-        login
-      </Form.Text>
+      <p>
+        <Form.Text id="passwordHelpBlock" >
+          login
+        </Form.Text>
+      </p>
 
       <Form.Label htmlFor="username">Username</Form.Label>
       <Form.Control
