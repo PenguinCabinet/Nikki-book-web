@@ -105,10 +105,16 @@ def get_user(session: SessionDep, username: str):
     user = session.exec(select(User).where(User.username == username)).all()
     if len(user)==1:
         return user[0]
+    elif len(user)>=2:
+        logger.error("There are two or more users with the same username.")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="",
+        )
 
 
-def authenticate_user(fake_db, username: str, password: str):
-    user = get_user(fake_db, username)
+def authenticate_user(db, username: str, password: str):
+    user = get_user(db, username)
     if not user:
         verify_password(password, DUMMY_HASH)
         return False
