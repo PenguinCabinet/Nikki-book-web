@@ -6,6 +6,9 @@ import io
 import zipfile
 import re
 import os
+from logging import getLogger
+logger = getLogger(__name__)
+logger.info('system log')
 
 from fastapi import Depends, FastAPI, HTTPException, status, Path, Query, File, UploadFile
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
@@ -45,6 +48,9 @@ class Nikki(SQLModel, table=True):
 
 class Nikki_for_client(BaseModel):
     text: str = Field(default="")
+
+#ユーザー登録数の上限値
+LIMIT_USER_LENGTH=1
 
 sqlite_file_name = "database.db"
 sqlite_url = f"sqlite:///{sqlite_file_name}"
@@ -165,6 +171,37 @@ async def login_for_access_token(
         data={"sub": user.username}, expires_delta=access_token_expires
     )
     return Token(access_token=access_token, token_type="bearer")
+
+@app.post("/register")
+async def register(
+    session: SessionDep,
+    form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
+) -> Token:
+    #登録ユーザー数が上限に達しているかチェック
+    user = session.exec(select(User)).all()
+    if len(user)>=LIMIT_USER_LENGTH:
+        raise HTTPException(
+            status_code=status.HTTP_510_NOT_EXTENDED,
+            detail="The number of registered users has reached the limit.",
+        )
+
+    #同一のユーザーが既に登録されていないか検索
+    user = session.exec(select(User).where(User.username == form_data.username)).all()
+    if len(user)==0:
+        new_user=User(username=form_data.username,hashed_password=password_hash.hash(form_data.password))
+        session.add(new_user)
+        session.commit()
+        session.refresh(new_user) 
+    elif len(user)==1:
+        pass
+    else:
+        logger.error("There are two or more users with the same username.")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="",
+        )
+
+    return await login_for_access_token(session,form_data)
 
 @app.put("/nikki/{date_str}", response_model=Nikki_for_client)
 async def read_nikki(
