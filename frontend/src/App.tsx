@@ -44,11 +44,11 @@ function Nikki() {
       setNikki_data(v)
     }
 
-    async function Nikki_move_diff(m:number, d:number) {
+    async function Nikki_move_diff(diff_month_func:(current:number)=>number, diff_date_func:(current:number)=>number) {
       setLoading(true)
       let new_date = new Date(date.getTime())
-      new_date.setMonth(date.getMonth() + m)
-      new_date.setDate(date.getDate() + d)
+      new_date.setMonth(diff_month_func(date.getMonth()))
+      new_date.setDate(diff_date_func(date.getDate()))
       setDate(new_date)
 
       const result=await fetch_with_login(`/nikki/${new_date.getFullYear()}-${new_date.getMonth() + 1}-${new_date.getDate()}`,
@@ -73,35 +73,35 @@ function Nikki() {
                     className='mx-2'
                     id="Nikki_move_prev_month"
                     variant="outline-primary"
-                    onClick={() => { Nikki_move_diff(-1, 0) }}>
+                    onClick={() => { Nikki_move_diff((c)=>c-1, (c)=>c) }}>
                     ←←
                 </Button>
                 <Button
                     id="Nikki_move_prev"
                     className='mx-2'
                     variant="outline-primary"
-                    onClick={() => { Nikki_move_diff(0, -1) }}>
+                    onClick={() => { Nikki_move_diff((c)=>c,(c)=>c-1) }}>
                     ←
                 </Button>
                 <Button
                     id="Nikki_move_next"
                     className='mx-2'
                     variant="outline-primary"
-                    onClick={() => { Nikki_move_diff(0, 1) }}>
+                    onClick={() => { Nikki_move_diff((c)=>c, (c)=>c+1) }}>
                     →
                 </Button>
                 <Button
                     id="Nikki_move_next_month"
                     className='mx-2'
                     variant="outline-primary"
-                    onClick={() => { Nikki_move_diff(1, 0) }}>
+                    onClick={() => { Nikki_move_diff((c)=>c+1, (c)=>c) }}>
                     →→
                 </Button>
                 <Button
                     id="Nikki_move_today"
                     className='mx-2'
                     variant="outline-primary"
-                    onClick={() => { setDate(new Date()) }}
+                    onClick={() => { Nikki_move_diff((c)=>(new Date()).getMonth(), (c)=>(new Date()).getDate()) }}
                 >
                     Today
                 </Button>
