@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState,useEffect } from 'react';
 import Button from 'react-bootstrap/Button';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import TextArea from './TextArea';
@@ -65,6 +65,9 @@ function Nikki() {
       setLoading(false)
     }
 
+    useEffect(() => {
+        Nikki_move_diff((c)=>c,(c)=>c);
+    }, []);
 
     return (
         <div id="app" className="m-3">
