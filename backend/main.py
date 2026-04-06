@@ -80,6 +80,10 @@ def get_session():
     with Session(engine) as session:
         yield session
 
+def nikki_to_json_for_client(v):
+    return {
+        "text":v.text
+    }
 
 SessionDep = Annotated[Session, Depends(get_session)]
 
