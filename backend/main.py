@@ -17,11 +17,15 @@ from pwdlib import PasswordHash
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from sqlmodel import Field, Session, SQLModel, create_engine, select
+from dotenv import load_dotenv
 
+load_dotenv()
 
 # to get a string like this run:
 # openssl rand -hex 32
-SECRET_KEY = "09d25e094faa6ca2556c818166b7a9563b93f7099f6f0f4caa6cf63b88e8d3e7"
+SECRET_KEY = os.getenv("NIKKI_BOOK_SECRET_KEY", None)
+if SECRET_KEY is None:
+    raise EnvironmentError("NIKKI_BOOK_SECRET_KEY is None")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
