@@ -47,6 +47,7 @@ npm run dev
 ### Backend
 お好きなVPSで動かすことができます。工夫すれば、Google Cloud Runなどでも動かせると思います。データベースはSQLiteを使っています。
 [VPSにDeployする際、この記事が参考になりました。](https://qiita.com/goro8/items/0b0cd89f46452034c40b)
+#### 設定方法
 ```
 touch .env
 ```
