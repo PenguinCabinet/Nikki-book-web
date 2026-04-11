@@ -47,9 +47,21 @@ function Nikki() {
     async function Nikki_move_diff(diff_year_func:(current:number)=>number, diff_month_func:(current:number)=>number, diff_date_func:(current:number)=>number) {
       setLoading(true)
       let new_date = new Date(date.getTime())
+
       new_date.setFullYear(diff_year_func(date.getFullYear()))
+
+      new_date.setDate(1)
       new_date.setMonth(diff_month_func(date.getMonth()))
-      new_date.setDate(diff_date_func(date.getDate()))
+      const last_day_in_month = new Date(new_date.getFullYear(), new_date.getMonth() + 1, 0).getDate();
+      new_date.setDate(
+        Math.min(
+            date.getDate(),
+            last_day_in_month,
+        )
+      )
+
+      new_date.setDate(diff_date_func(new_date.getDate()))
+
       setDate(new_date)
 
       const result=await fetch_with_login(`/nikki/${new_date.getFullYear()}-${new_date.getMonth() + 1}-${new_date.getDate()}`,
