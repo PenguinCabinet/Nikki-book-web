@@ -39,19 +39,24 @@ function App() {
         </Form.Text>
       </p>
 
-      <Form.Label htmlFor="username">Username</Form.Label>
+      <Form.Label name="username" htmlFor="username">Username</Form.Label>
       <Form.Control
         type="input"
+        id="username"
         name="username"
+ 	autoComplete="username" required={true}
       />
 
-      <Form.Label htmlFor="password">Password</Form.Label>
+      <Form.Label name="password" htmlFor="username">Password</Form.Label>
       <Form.Control
         type="password"
+        id="password"
         name="password"
         aria-describedby="passwordHelpBlock"
+ 	autoComplete="current-password" required={true}
       />
-      <Button type='submit'>submit</Button>
+      <Button type='submit'>register</Button>
+
     </Form>
     </>
   )
