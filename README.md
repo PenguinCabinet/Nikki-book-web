@@ -49,11 +49,12 @@ npm run dev
 [VPSにDeployする際、この記事が参考になりました。](https://qiita.com/goro8/items/0b0cd89f46452034c40b)
 #### 設定方法
 ```
-touch .env
+touch backend/.env
 ```
-`openssl rand -hex 32`を実行し、.envにNIKKI_BOOK_SECRET_KEYを設定してください
+設定ファイル.envを記述してください
 ```
-NIKKI_BOOK_SECRET_KEY=
+frontend_url=https://example.com
+ENV=production
 ```
 backend/main.pyのCORSMiddlewareを編集し、allow_originsにフロントエンドURLを設定してください。
 
