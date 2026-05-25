@@ -61,9 +61,14 @@ DUMMY_HASH = password_hash.hash("dummypassword")
 
 app = FastAPI()
 
+allow_origins=["http://localhost:5173"]
+frontend_url = os.getenv("frontend_url", None)
+if frontend_url is not None:
+    allow_origins.append(frontend_url)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=allow_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
