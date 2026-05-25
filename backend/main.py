@@ -174,7 +174,7 @@ async def login_for_access_token(
         value=session_id,
         httponly=True,
         max_age=2147483647,
-        samesite="none",
+        samesite="lax",
         secure=(os.getenv("ENV") == "production"),
     )
     return {"status": "success"}
