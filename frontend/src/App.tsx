@@ -2,7 +2,6 @@ import { useState,useEffect } from 'react';
 import Button from 'react-bootstrap/Button';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import TextArea from './TextArea';
-import { useCookies } from "react-cookie";
 import {fetch_with_login} from "./common/util"
 import { useNavigate } from 'react-router-dom';
 
@@ -20,8 +19,6 @@ function DatetoString(v:any) {
 }
 
 function Nikki() {
-    const [cookies, setCookie, removeCookie] = useCookies(["token"]);
-
     const navigate = useNavigate();
 
     const [Nikki_data, setNikki_data] = useState('');
@@ -36,10 +33,9 @@ function Nikki() {
           method: "PUT",
           body:  JSON.stringify({ text:v}),
           headers: {
-            'Authorization': 'Bearer '+cookies.token.access_token,
             'Content-Type': "application/json",
           }
-        },navigate,cookies)
+        },navigate)
      
       setNikki_data(v)
     }
@@ -68,13 +64,14 @@ function Nikki() {
         {
           method: "GET",
           headers: {
-            'Authorization': 'Bearer '+cookies.token.access_token,
             'Content-Type': "application/json",
           }
         }
-        ,navigate,cookies)
+        ,navigate)
       
-      setNikki_data(result["text"]);
+      if (result) {
+          setNikki_data(result["text"]);
+      }
       setLoading(false)
     }
 

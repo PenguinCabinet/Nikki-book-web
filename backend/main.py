@@ -1,7 +1,6 @@
 from typing import Annotated
 import datetime
-
-import jwt
+import secrets
 import io
 import zipfile
 import re
@@ -10,9 +9,8 @@ from logging import getLogger
 logger = getLogger(__name__)
 logger.info('system log')
 
-from fastapi import Depends, FastAPI, HTTPException, status, Path, Query, File, UploadFile
-from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
-from jwt.exceptions import InvalidTokenError
+from fastapi import Depends, FastAPI, HTTPException, status, Path, Query, File, UploadFile, Response, Request
+from fastapi.security import OAuth2PasswordRequestForm
 from pwdlib import PasswordHash
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
@@ -21,28 +19,19 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# to get a string like this run:
-# openssl rand -hex 32
 SECRET_KEY = os.getenv("NIKKI_BOOK_SECRET_KEY", None)
 if SECRET_KEY is None:
     raise EnvironmentError("NIKKI_BOOK_SECRET_KEY is None")
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30
-
-
-class Token(BaseModel):
-    access_token: str
-    token_type: str
-
-
-class TokenData(BaseModel):
-    username: str | None = None
-
 
 class User(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     username: str
     hashed_password: str
+
+class UserSession(SQLModel, table=True):
+    session_id: str = Field(primary_key=True)
+    user_id: int = Field(index=True)
+    created_at: datetime.datetime = Field(default_factory=lambda: datetime.datetime.now(datetime.timezone.utc))
 
 class Nikki(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
@@ -69,8 +58,6 @@ def create_db_and_tables():
 password_hash = PasswordHash.recommended()
 
 DUMMY_HASH = password_hash.hash("dummypassword")
-
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
 app = FastAPI()
 
@@ -126,35 +113,30 @@ def authenticate_user(db, username: str, password: str):
         return False
     return user
 
+def create_session_id():
+    return secrets.token_urlsafe(32)
 
-def create_access_token(data: dict, expires_delta: datetime.timedelta | None = None):
-    to_encode = data.copy()
-    if expires_delta:
-        expire = datetime.datetime.now(datetime.timezone.utc) + expires_delta
-    else:
-        expire = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(minutes=15)
-    to_encode.update({"exp": expire})
-    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-    return encoded_jwt
-
-
-async def get_current_user(session: SessionDep,token: Annotated[str, Depends(oauth2_scheme)]):
-    credentials_exception = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Could not validate credentials",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        username = payload.get("sub")
-        if username is None:
-            raise credentials_exception
-        token_data = TokenData(username=username)
-    except InvalidTokenError:
-        raise credentials_exception
-    user = get_user(session, username=token_data.username)
-    if user is None:
-        raise credentials_exception
+async def get_current_user(request: Request, session: SessionDep):
+    session_id = request.cookies.get("session_id")
+    if not session_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+        )
+    
+    user_session = session.exec(select(UserSession).where(UserSession.session_id == session_id)).first()
+    if not user_session:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid session",
+        )
+    
+    user = session.get(User, user_session.user_id)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found",
+        )
     return user
 
 
@@ -166,27 +148,38 @@ async def get_current_active_user(
 
 @app.post("/token")
 async def login_for_access_token(
+    response: Response,
     session: SessionDep,
     form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
-) -> Token:
+):
     user = authenticate_user(session, form_data.username, form_data.password)
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect username or password",
-            headers={"WWW-Authenticate": "Bearer"},
         )
-    access_token_expires = datetime.timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    access_token = create_access_token(
-        data={"sub": user.username}, expires_delta=access_token_expires
+    
+    session_id = create_session_id()
+    new_session = UserSession(session_id=session_id, user_id=user.id)
+    session.add(new_session)
+    session.commit()
+    
+    response.set_cookie(
+        key="session_id",
+        value=session_id,
+        httponly=True,
+        max_age=2147483647,
+        samesite="lax",
+        secure=(os.getenv("ENV") == "production"),
     )
-    return Token(access_token=access_token, token_type="bearer")
+    return {"status": "success"}
 
 @app.post("/register")
 async def register(
+    response: Response,
     session: SessionDep,
     form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
-) -> Token:
+):
     #登録ユーザー数が上限に達しているかチェック
     user = session.exec(select(User)).all()
     if len(user)>=LIMIT_USER_LENGTH:
@@ -211,10 +204,10 @@ async def register(
             detail="",
         )
 
-    return await login_for_access_token(session,form_data)
+    return await login_for_access_token(response, session, form_data)
 
 @app.put("/nikki/{date_str}", response_model=Nikki_for_client)
-async def read_nikki(
+async def update_nikki(
     session: SessionDep,
     current_user: Annotated[User, Depends(get_current_active_user)],
     date_str: Annotated[str, Path(title="The date")],
@@ -276,7 +269,7 @@ async def read_nikki(
         return nikki_to_json_for_client(nikki[0])
 
 def nikki_zip_fname_parser(v:str):
-    temp = datetime.datetime.strptime(v, '%Y年%-m月%-d日')
+    temp = datetime.datetime.strptime(v, '%Y年%m月%d日')
 
     return datetime.date(temp.year, temp.month, temp.day)
 
@@ -301,19 +294,25 @@ async def nikki_upload_zip(
                 with z.open(filename) as f:
                     #print(filename)
                     try:
-                        date=nikki_zip_fname_parser(os.path.splitext(os.path.basename(filename))[0])
-                        nikki_text_zip = f.read().decode("utf-8")
+                        # zip内のファイル名解析(OSによって%mなどが使えない場合があるため標準的なフォーマットを試みる)
+                        date_match = re.search(r"(\d{4})年(\d{1,2})月(\d{1,2})日", os.path.splitext(os.path.basename(filename))[0])
+                        if date_match:
+                            year, month, day = map(int, date_match.groups())
+                            date = datetime.date(year, month, day)
+                            nikki_text_zip = f.read().decode("utf-8")
 
-                        nikki = session.exec(select(Nikki).where(Nikki.user_id == current_user.id , Nikki.date==date)).all()
-                        if len(nikki)==0:
-                            session.add(Nikki(user_id=current_user.id,date=date,text=nikki_text_zip))
+                            nikki = session.exec(select(Nikki).where(Nikki.user_id == current_user.id , Nikki.date==date)).all()
+                            if len(nikki)==0:
+                                session.add(Nikki(user_id=current_user.id,date=date,text=nikki_text_zip))
+                            else:
+                                nikki[0].text=nikki_text_zip
                         else:
-                            nikki[0].text=nikki_text_zip
+                            pass
 
-                    except ValueError:
+                    except Exception as e:
+                        logger.error(f"Error parsing filename {filename}: {e}")
                         pass
     
     session.commit()
     
     return {}
-

@@ -1,13 +1,11 @@
 import Button from 'react-bootstrap/Button';
 import Form from 'react-bootstrap/Form';
 import 'bootstrap/dist/css/bootstrap.min.css';
-import { useCookies } from "react-cookie";
 import { useNavigate } from 'react-router-dom';
 import {fetch_with_login} from "../common/util"
 
 
 function nikki_zip_upload() {
-    const [cookies, setCookie, removeCookie] = useCookies(["token"]);
     const navigate = useNavigate();
 
     const handleSubmit=(e: React.FormEvent<HTMLFormElement>)=>{
@@ -20,10 +18,7 @@ function nikki_zip_upload() {
         {
           method: "POST",
           body:formData,
-          headers: {
-            'Authorization': 'Bearer '+cookies.token.access_token,
-          }
-        },navigate,cookies,undefined)
+        },navigate)
     }
 
     return (
