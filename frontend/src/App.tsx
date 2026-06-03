@@ -41,6 +41,8 @@ function Nikki() {
     }
 
     async function Nikki_move_diff(diff_year_func:(current:number)=>number, diff_month_func:(current:number)=>number, diff_date_func:(current:number)=>number) {
+      if(Loading)
+        return;
       setLoading(true)
       let new_date = new Date(date.getTime())
 
