@@ -79,6 +79,10 @@ function Nikki() {
 
     useEffect(() => {
         Nikki_move_diff((c)=>c,(c)=>c,(c)=>c);
+
+        const id = setInterval(() => {
+            Nikki_move_diff((c)=>c,(c)=>c,(c)=>c);
+        }, 60*60 * 1000)
     }, []);
 
     return (
