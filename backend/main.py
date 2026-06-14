@@ -297,22 +297,15 @@ async def nikki_upload_zip(
         for filename in z.namelist():
             if filename.endswith(".txt"):
                 with z.open(filename) as f:
-                    #print(filename)
                     try:
-                        # zip内のファイル名解析(OSによって%mなどが使えない場合があるため標準的なフォーマットを試みる)
-                        date_match = re.search(r"(\d{4})年(\d{1,2})月(\d{1,2})日", os.path.splitext(os.path.basename(filename))[0])
-                        if date_match:
-                            year, month, day = map(int, date_match.groups())
-                            date = datetime.date(year, month, day)
-                            nikki_text_zip = f.read().decode("utf-8")
+                        date=nikki_zip_fname_parser(os.path.splitext(os.path.basename(filename))[0])
+                        nikki_text_zip = f.read().decode("utf-8")
 
-                            nikki = session.exec(select(Nikki).where(Nikki.user_id == current_user.id , Nikki.date==date)).all()
-                            if len(nikki)==0:
-                                session.add(Nikki(user_id=current_user.id,date=date,text=nikki_text_zip))
-                            else:
-                                nikki[0].text=nikki_text_zip
+                        nikki = session.exec(select(Nikki).where(Nikki.user_id == current_user.id , Nikki.date==date)).all()
+                        if len(nikki)==0:
+                            session.add(Nikki(user_id=current_user.id,date=date,text=nikki_text_zip))
                         else:
-                            pass
+                            nikki[0].text=nikki_text_zip
 
                     except Exception as e:
                         logger.error(f"Error parsing filename {filename}: {e}")
