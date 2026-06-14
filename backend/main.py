@@ -314,3 +314,8 @@ async def nikki_upload_zip(
     session.commit()
     
     return {}
+
+def select_today_nikki_from_template(template:str):
+    template_arr=[e.lstrip() for e in template.split("\n") if "▶️" in e]
+    return "\n".join(template_arr)
+
