@@ -324,6 +324,9 @@ def select_today_nikki_from_template(template:str):
     template_arr=[e.lstrip() for e in template.split("\n") if "▶️" in e]
     return "\n".join(template_arr)
 
+def replace_start_icon_to_unfinished(template:str):
+    return template.replace("▶️","・")
+
 @app.put("/template", response_model=Nikki_for_client)
 async def update_nikki_template(
     session: SessionDep,
