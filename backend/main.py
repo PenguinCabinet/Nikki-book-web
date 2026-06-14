@@ -39,6 +39,11 @@ class Nikki(SQLModel, table=True):
     date: datetime.date
     text: str = Field(default="")
 
+class Nikki_template(SQLModel, table=True):
+    id: int | None = Field(default=None, primary_key=True)
+    user_id: int | None
+    text: str = Field(default="")
+
 class Nikki_for_client(BaseModel):
     text: str = Field(default="")
 
