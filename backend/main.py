@@ -324,3 +324,32 @@ def select_today_nikki_from_template(template:str):
     template_arr=[e.lstrip() for e in template.split("\n") if "▶️" in e]
     return "\n".join(template_arr)
 
+@app.put("/template", response_model=Nikki_for_client)
+async def update_nikki_template(
+    session: SessionDep,
+    current_user: Annotated[User, Depends(get_current_active_user)],
+    nikki_for_client: Nikki_for_client
+):
+    nikki_template = session.exec(select(Nikki_template).where(Nikki_template.user_id == current_user.id)).all()
+    if len(nikki_template)==0:
+        nikki_template=[Nikki_template(user_id=current_user.id,text=nikki_for_client.text)]
+        session.add(nikki_template[0])
+    else:
+        nikki_template[0].text=nikki_for_client.text
+    
+    session.commit()
+            
+    return nikki_to_json_for_client(nikki_template[0])
+
+
+@app.get("/template")
+async def read_nikki_template(
+    session: SessionDep,
+    current_user: Annotated[User, Depends(get_current_active_user)],
+):
+    nikki_template = session.exec(select(Nikki_template).where(Nikki_template.user_id == current_user.id)).all()
+
+    if len(nikki_template)==0:
+        return nikki_to_json_for_client(Nikki_template(date=nikki_template))
+    else:
+        return nikki_to_json_for_client(nikki_template[0])
