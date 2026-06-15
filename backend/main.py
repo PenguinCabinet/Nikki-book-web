@@ -6,6 +6,10 @@ import zipfile
 import re
 import os
 from logging import getLogger
+from zoneinfo import ZoneInfo
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.cron import CronTrigger
+
 logger = getLogger(__name__)
 logger.info('system log')
 
@@ -18,6 +22,12 @@ from sqlmodel import Field, Session, SQLModel, create_engine, select
 from dotenv import load_dotenv
 
 load_dotenv()
+
+jst = datetime.timezone(datetime.timedelta(hours=9))
+scheduler = AsyncIOScheduler(
+    timezone=ZoneInfo("Asia/Tokyo")
+)
+
 
 SECRET_KEY = os.getenv("NIKKI_BOOK_SECRET_KEY", None)
 if SECRET_KEY is None:
@@ -81,7 +91,18 @@ app.add_middleware(
 
 @app.on_event("startup")
 def on_startup():
+    scheduler.add_job(
+        apply_nikki_template_to_today_nikki,
+        CronTrigger(hour=0, minute=0)
+    )
+
+    scheduler.start()
+
     create_db_and_tables()
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    scheduler.shutdown()
 
 def get_session():
     with Session(engine) as session:
@@ -356,3 +377,35 @@ async def read_nikki_template(
         return nikki_to_json_for_client(Nikki_template(date=nikki_template))
     else:
         return nikki_to_json_for_client(nikki_template[0])
+
+#すべてのユーザーに対して、日記テンプレートを今日の日記に適用するバッチ処理
+async def apply_nikki_template_to_today_nikki():
+    with Session(engine) as session:
+        date=datetime.datetime.now(jst).date()
+        date_str=date.strftime('%Y-%m-%d')
+        users=session.exec(select(User))
+        for current_user in users:
+
+            nikki = await read_nikki(session,current_user,date_str)
+
+            nikki_template = await read_nikki_template(session,current_user)
+
+            apply_template_text=replace_start_icon_to_unfinished(
+                select_today_nikki_from_template(nikki_template["text"])
+            )
+
+            applied_nikki_text=""
+            if len(nikki["text"])==0 or nikki["text"][-1]=="\n":
+                applied_nikki_text=nikki["text"]+apply_template_text
+                #その日の日記の長さが0なら、そのまま結合(実質テンプレートをそのまま代入している)
+                #その日の日記の最後の文字が改行なら、そのまま結合
+            else:
+                applied_nikki_text=nikki["text"]+"\n"+apply_template_text
+                #その日の日記の最後の文字が改行ではいなら、最後に改行を追加したうえで、結合
+            
+            await update_nikki(session,current_user,date_str,
+                Nikki_for_client(
+                    text=applied_nikki_text
+                )
+            )
+
