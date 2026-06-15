@@ -6,6 +6,10 @@ import zipfile
 import re
 import os
 from logging import getLogger
+from zoneinfo import ZoneInfo
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.cron import CronTrigger
+
 logger = getLogger(__name__)
 logger.info('system log')
 
@@ -18,6 +22,12 @@ from sqlmodel import Field, Session, SQLModel, create_engine, select
 from dotenv import load_dotenv
 
 load_dotenv()
+
+jst = datetime.timezone(datetime.timedelta(hours=9))
+scheduler = AsyncIOScheduler(
+    timezone=ZoneInfo("Asia/Tokyo")
+)
+
 
 SECRET_KEY = os.getenv("NIKKI_BOOK_SECRET_KEY", None)
 if SECRET_KEY is None:
@@ -37,6 +47,11 @@ class Nikki(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     user_id: int | None
     date: datetime.date
+    text: str = Field(default="")
+
+class Nikki_template(SQLModel, table=True):
+    id: int | None = Field(default=None, primary_key=True)
+    user_id: int | None
     text: str = Field(default="")
 
 class Nikki_for_client(BaseModel):
@@ -76,7 +91,18 @@ app.add_middleware(
 
 @app.on_event("startup")
 def on_startup():
+    scheduler.add_job(
+        apply_nikki_template_to_today_nikki,
+        CronTrigger(hour=0, minute=0)
+    )
+
+    scheduler.start()
+
     create_db_and_tables()
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    scheduler.shutdown()
 
 def get_session():
     with Session(engine) as session:
@@ -297,22 +323,15 @@ async def nikki_upload_zip(
         for filename in z.namelist():
             if filename.endswith(".txt"):
                 with z.open(filename) as f:
-                    #print(filename)
                     try:
-                        # zip内のファイル名解析(OSによって%mなどが使えない場合があるため標準的なフォーマットを試みる)
-                        date_match = re.search(r"(\d{4})年(\d{1,2})月(\d{1,2})日", os.path.splitext(os.path.basename(filename))[0])
-                        if date_match:
-                            year, month, day = map(int, date_match.groups())
-                            date = datetime.date(year, month, day)
-                            nikki_text_zip = f.read().decode("utf-8")
+                        date=nikki_zip_fname_parser(os.path.splitext(os.path.basename(filename))[0])
+                        nikki_text_zip = f.read().decode("utf-8")
 
-                            nikki = session.exec(select(Nikki).where(Nikki.user_id == current_user.id , Nikki.date==date)).all()
-                            if len(nikki)==0:
-                                session.add(Nikki(user_id=current_user.id,date=date,text=nikki_text_zip))
-                            else:
-                                nikki[0].text=nikki_text_zip
+                        nikki = session.exec(select(Nikki).where(Nikki.user_id == current_user.id , Nikki.date==date)).all()
+                        if len(nikki)==0:
+                            session.add(Nikki(user_id=current_user.id,date=date,text=nikki_text_zip))
                         else:
-                            pass
+                            nikki[0].text=nikki_text_zip
 
                     except Exception as e:
                         logger.error(f"Error parsing filename {filename}: {e}")
@@ -321,3 +340,72 @@ async def nikki_upload_zip(
     session.commit()
     
     return {}
+
+def select_today_nikki_from_template(template:str):
+    template_arr=[e.lstrip() for e in template.split("\n") if "▶️" in e]
+    return "\n".join(template_arr)
+
+def replace_start_icon_to_unfinished(template:str):
+    return template.replace("▶️","・")
+
+@app.put("/template", response_model=Nikki_for_client)
+async def update_nikki_template(
+    session: SessionDep,
+    current_user: Annotated[User, Depends(get_current_active_user)],
+    nikki_for_client: Nikki_for_client
+):
+    nikki_template = session.exec(select(Nikki_template).where(Nikki_template.user_id == current_user.id)).all()
+    if len(nikki_template)==0:
+        nikki_template=[Nikki_template(user_id=current_user.id,text=nikki_for_client.text)]
+        session.add(nikki_template[0])
+    else:
+        nikki_template[0].text=nikki_for_client.text
+    
+    session.commit()
+            
+    return nikki_to_json_for_client(nikki_template[0])
+
+
+@app.get("/template")
+async def read_nikki_template(
+    session: SessionDep,
+    current_user: Annotated[User, Depends(get_current_active_user)],
+):
+    nikki_template = session.exec(select(Nikki_template).where(Nikki_template.user_id == current_user.id)).all()
+
+    if len(nikki_template)==0:
+        return nikki_to_json_for_client(Nikki_template(date=nikki_template))
+    else:
+        return nikki_to_json_for_client(nikki_template[0])
+
+#すべてのユーザーに対して、日記テンプレートを今日の日記に適用するバッチ処理
+async def apply_nikki_template_to_today_nikki():
+    with Session(engine) as session:
+        date=datetime.datetime.now(jst).date()
+        date_str=date.strftime('%Y-%m-%d')
+        users=session.exec(select(User))
+        for current_user in users:
+
+            nikki = await read_nikki(session,current_user,date_str)
+
+            nikki_template = await read_nikki_template(session,current_user)
+
+            apply_template_text=replace_start_icon_to_unfinished(
+                select_today_nikki_from_template(nikki_template["text"])
+            )
+
+            applied_nikki_text=""
+            if len(nikki["text"])==0 or nikki["text"][-1]=="\n":
+                applied_nikki_text=nikki["text"]+apply_template_text
+                #その日の日記の長さが0なら、そのまま結合(実質テンプレートをそのまま代入している)
+                #その日の日記の最後の文字が改行なら、そのまま結合
+            else:
+                applied_nikki_text=nikki["text"]+"\n"+apply_template_text
+                #その日の日記の最後の文字が改行ではいなら、最後に改行を追加したうえで、結合
+            
+            await update_nikki(session,current_user,date_str,
+                Nikki_for_client(
+                    text=applied_nikki_text
+                )
+            )
+
