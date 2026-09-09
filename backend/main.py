@@ -5,6 +5,7 @@ import io
 import zipfile
 import re
 import os
+from crdt import lock_writes, load_document, save_document, replace_text
 from logging import getLogger
 from zoneinfo import ZoneInfo
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -244,36 +245,7 @@ async def update_nikki(
     date_str: Annotated[str, Path(title="The date")],
     nikki_for_client: Nikki_for_client
 ):
-    try:
-        temp = datetime.datetime.strptime(date_str, '%Y-%m-%d')
-    except ValueError:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="The date format is incorrect.",
-        )
-    date=datetime.date(temp.year,temp.month,temp.day)
-
-    nikki = session.exec(select(Nikki).where(Nikki.user_id == current_user.id , Nikki.date==date)).all()
-    if nikki_for_client.text=="":
-        if len(nikki)==0:
-            #更新される日記に何も書いておらず、データベースに該当日記が存在しない場合、ダミーの空の日記データを返す
-            nikki=[Nikki(user_id=current_user.id,date=date)]
-        else:
-            #更新される日記に何も書いておらず、データベースに該当日記が存在する場合、Rowのテキストを空にしたうえで、Rowを削除する
-            nikki[0].text=nikki_for_client.text
-            session.delete(nikki[0])
-    else:
-        if len(nikki)==0:
-            #更新される日記に何か書かれており、データベースに該当日記が存在しない場合、Rowを新規作成する
-            nikki=[Nikki(user_id=current_user.id,date=date,text=nikki_for_client.text)]
-            session.add(nikki[0])
-        else:
-            #更新される日記に何か書かれており、データベースに該当日記が存在しない場合、Rowを更新する
-            nikki[0].text=nikki_for_client.text
-    
-    session.commit()
-            
-    return nikki_to_json_for_client(nikki[0])
+    raise HTTPException(409, "Please reload the app to use CRDT synchronization.")
 
 
 @app.get("/nikki/{date_str}")
@@ -327,11 +299,12 @@ async def nikki_upload_zip(
                         date=nikki_zip_fname_parser(os.path.splitext(os.path.basename(filename))[0])
                         nikki_text_zip = f.read().decode("utf-8")
 
-                        nikki = session.exec(select(Nikki).where(Nikki.user_id == current_user.id , Nikki.date==date)).all()
-                        if len(nikki)==0:
-                            session.add(Nikki(user_id=current_user.id,date=date,text=nikki_text_zip))
-                        else:
-                            nikki[0].text=nikki_text_zip
+                        with Session(engine) as write_session:
+                            lock_writes(write_session)
+                            key, row, doc = open_collaborative(write_session, current_user.id, "nikki", date)
+                            replace_text(doc, nikki_text_zip)
+                            persist_collaborative(write_session, key, row, doc)
+                            write_session.commit()
 
                     except Exception as e:
                         logger.error(f"Error parsing filename {filename}: {e}")
@@ -354,16 +327,7 @@ async def update_nikki_template(
     current_user: Annotated[User, Depends(get_current_active_user)],
     nikki_for_client: Nikki_for_client
 ):
-    nikki_template = session.exec(select(Nikki_template).where(Nikki_template.user_id == current_user.id)).all()
-    if len(nikki_template)==0:
-        nikki_template=[Nikki_template(user_id=current_user.id,text=nikki_for_client.text)]
-        session.add(nikki_template[0])
-    else:
-        nikki_template[0].text=nikki_for_client.text
-    
-    session.commit()
-            
-    return nikki_to_json_for_client(nikki_template[0])
+    raise HTTPException(409, "Please reload the app to use CRDT synchronization.")
 
 
 @app.get("/template")
@@ -386,26 +350,78 @@ async def apply_nikki_template_to_today_nikki():
         users=session.exec(select(User))
         for current_user in users:
 
-            nikki = await read_nikki(session,current_user,date_str)
+            with Session(engine) as write_session:
+                lock_writes(write_session)
+                key, row, doc = open_collaborative(write_session, current_user.id, "nikki", date)
+                template = write_session.exec(select(Nikki_template).where(Nikki_template.user_id == current_user.id)).first()
+                addition = replace_start_icon_to_unfinished(select_today_nikki_from_template(template.text if template else ""))
+                if addition:
+                    previous = str(doc["text"])
+                    replace_text(doc, previous + ("\n" if previous and not previous.endswith("\n") else "") + addition)
+                    persist_collaborative(write_session, key, row, doc)
+                write_session.commit()
 
-            nikki_template = await read_nikki_template(session,current_user)
 
-            apply_template_text=replace_start_icon_to_unfinished(
-                select_today_nikki_from_template(nikki_template["text"])
-            )
+@app.get("/sync-identity")
+async def sync_identity(current_user: Annotated[User, Depends(get_current_active_user)]):
+    from fastapi.responses import JSONResponse
+    return JSONResponse({"user_id": current_user.id}, headers={"Cache-Control": "no-store"})
 
-            applied_nikki_text=""
-            if len(nikki["text"])==0 or nikki["text"][-1]=="\n":
-                applied_nikki_text=nikki["text"]+apply_template_text
-                #その日の日記の長さが0なら、そのまま結合(実質テンプレートをそのまま代入している)
-                #その日の日記の最後の文字が改行なら、そのまま結合
-            else:
-                applied_nikki_text=nikki["text"]+"\n"+apply_template_text
-                #その日の日記の最後の文字が改行ではいなら、最後に改行を追加したうえで、結合
-            
-            await update_nikki(session,current_user,date_str,
-                Nikki_for_client(
-                    text=applied_nikki_text
-                )
-            )
 
+def open_collaborative(session, user_id, kind, date=None):
+    if kind == "nikki":
+        row = session.exec(select(Nikki).where(Nikki.user_id == user_id, Nikki.date == date)).first()
+        row = row if row is not None else Nikki(user_id=user_id, date=date)
+        key = f"{user_id}:nikki:{date.isoformat()}"
+    else:
+        row = session.exec(select(Nikki_template).where(Nikki_template.user_id == user_id)).first()
+        row = row if row is not None else Nikki_template(user_id=user_id)
+        key = f"{user_id}:template"
+    return key, row, load_document(session, key, row.text)
+
+
+def persist_collaborative(session, key, row, doc):
+    save_document(session, key, doc)
+    row.text = str(doc["text"])
+    session.add(row)
+
+
+async def sync_document(request, user_id, kind, date=None):
+    if request.headers.get("X-Sync-User") != str(user_id):
+        raise HTTPException(403, "The signed-in account changed. Please reload.")
+    # Limit input before parsing it as an untrusted CRDT update.
+    payload = bytearray()
+    async for chunk in request.stream():
+        payload.extend(chunk)
+        if len(payload) > 8 * 1024 * 1024:
+            raise HTTPException(413, "Document update too large")
+    with Session(engine) as write_session:
+        # SQLite serializes read/merge/write across processes, not just coroutines.
+        lock_writes(write_session)
+        key, row, doc = open_collaborative(write_session, user_id, kind, date)
+        if payload:
+            try:
+                doc.apply_update(bytes(payload))
+            except BaseException as exc:
+                # The Rust decoder may raise a PanicException for malformed input.
+                if isinstance(exc, (KeyboardInterrupt, SystemExit)):
+                    raise
+                raise HTTPException(400, "Invalid CRDT update") from exc
+        persist_collaborative(write_session, key, row, doc)
+        update = doc.get_update()
+        write_session.commit()
+    return Response(content=update, media_type="application/octet-stream", headers={"Cache-Control": "no-store"})
+
+
+@app.post("/nikki/{date_str}/sync")
+async def sync_nikki(request: Request, date_str: str, current_user: Annotated[User, Depends(get_current_active_user)]):
+    try:
+        date = datetime.datetime.strptime(date_str, "%Y-%m-%d").date()
+    except ValueError:
+        raise HTTPException(400, "The date format is incorrect.")
+    return await sync_document(request, current_user.id, "nikki", date)
+
+
+@app.post("/template/sync")
+async def sync_template(request: Request, current_user: Annotated[User, Depends(get_current_active_user)]):
+    return await sync_document(request, current_user.id, "template")
