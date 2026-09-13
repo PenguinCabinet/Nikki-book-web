@@ -24,11 +24,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-jst = datetime.timezone(datetime.timedelta(hours=9))
-scheduler = AsyncIOScheduler(
-    timezone=ZoneInfo("Asia/Tokyo")
-)
-
+jst = ZoneInfo("Asia/Tokyo")
+scheduler = AsyncIOScheduler(timezone=jst)
 
 SECRET_KEY = os.getenv("NIKKI_BOOK_SECRET_KEY", None)
 if SECRET_KEY is None:
@@ -94,7 +91,7 @@ app.add_middleware(
 def on_startup():
     scheduler.add_job(
         apply_nikki_template_to_today_nikki,
-        CronTrigger(hour=0, minute=0)
+        CronTrigger(hour=0, minute=0, timezone=jst)
     )
 
     scheduler.start()
