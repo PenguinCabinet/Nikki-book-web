@@ -55,6 +55,15 @@ class Nikki_template(SQLModel, table=True):
     user_id: int | None
     text: str = Field(default="")
 
+class HabitKeyword(SQLModel, table=True):
+    __tablename__ = "habit_keyword"
+
+    id: int | None = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="user.id", index=True)
+    is_public: bool = Field(default=False)
+    continued_at: datetime.datetime | None = Field(default=None)
+    keyword: str
+
 class Nikki_for_client(BaseModel):
     text: str = Field(default="")
 
