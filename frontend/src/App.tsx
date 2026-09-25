@@ -8,6 +8,7 @@ import Nikki from './NikkiEditor';
 import Tab from 'react-bootstrap/Tab';
 import Tabs from 'react-bootstrap/Tabs';
 import TemplateEditor from "./TemplateEditor"
+import Habit from './habit';
 
 function App() {
 
@@ -20,7 +21,7 @@ function App() {
         <Nikki/>
       </Tab>
       <Tab eventKey="habit" title="習慣">
-        <p>習慣</p>
+        <Habit />
       </Tab>
       <Tab eventKey="template" title="テンプレ">
         <TemplateEditor/>
