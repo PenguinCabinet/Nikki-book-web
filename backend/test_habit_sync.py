@@ -97,6 +97,58 @@ class HabitSyncTests(unittest.TestCase):
         )
         self.assertEqual(set(doc["habits"]), {"a", "b"})
 
+    def test_public_total_count_is_anonymous_and_scoped_to_user_and_visibility(self):
+        with Session(main.engine) as session:
+            session.get(main.User, 1).username = "alice"
+            session.get(main.User, 2).username = "bob"
+            session.commit()
+
+        habit = self.sync()
+        self.add(habit, "reading", "読書")
+        self.sync(habit)
+        keyword_id = self.rows()[0].id
+        with Session(main.engine) as session:
+            keyword = session.get(main.HabitKeyword, keyword_id)
+            keyword.total_count = 7
+            session.add_all([
+                keyword,
+                main.HabitKeyword(user_id=2, keyword="運動", is_public=True, total_count=12),
+            ])
+            session.commit()
+
+        url = f"/alice/habit/{keyword_id}"
+        self.client.cookies.clear()
+        self.assertEqual(self.client.get(url).status_code, 404)
+
+        self.client.cookies.set("session_id", "test-1")
+        habit["habits"]["reading"]["isPublic"] = True
+        self.sync(habit)
+        self.client.cookies.clear()
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"total_count": 7})
+        self.assertEqual(response.headers["Cache-Control"], "no-store")
+        self.assertEqual(self.client.get(f"/bob/habit/{keyword_id}").status_code, 404)
+        self.assertEqual(self.client.get(f"/1/habit/{keyword_id}").status_code, 404)
+        self.assertEqual(self.client.get("/alice/habit/999999").status_code, 404)
+        other_keyword = next(row for row in self.rows() if row.user_id == 2)
+        self.assertEqual(
+            self.client.get(f"/bob/habit/{other_keyword.id}").json(),
+            {"total_count": 12},
+        )
+        with Session(main.engine) as session:
+            keyword = session.get(main.HabitKeyword, keyword_id)
+            keyword.total_count = 0
+            session.add(keyword)
+            session.commit()
+        self.assertEqual(self.client.get(url).json(), {"total_count": 0})
+
+        self.client.cookies.set("session_id", "test-1")
+        habit["habits"]["reading"]["isPublic"] = False
+        self.sync(habit)
+        self.client.cookies.clear()
+        self.assertEqual(self.client.get(url).status_code, 404)
+
     def test_duplicate_keywords_have_distinct_stable_database_ids(self):
         doc = self.sync()
         self.add(doc, "a", "読書")

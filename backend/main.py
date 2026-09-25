@@ -653,3 +653,26 @@ async def sync_habit_legacy(current_user: Annotated[User, Depends(get_current_ac
 @app.post("/habit/v2/sync")
 async def sync_habit(request: Request, current_user: Annotated[User, Depends(get_current_active_user)]):
     return await sync_habit_document(request, current_user.id)
+
+
+@app.get("/{user_name}/habit/{habit_keyword_id}")
+async def read_public_habit_total_count(
+    user_name: str,
+    habit_keyword_id: int,
+    session: SessionDep,
+    response: Response,
+):
+    total_count = session.exec(
+        select(HabitKeyword.total_count)
+        .join(User, HabitKeyword.user_id == User.id)
+        .where(
+            HabitKeyword.id == habit_keyword_id,
+            User.username == user_name,
+            HabitKeyword.is_public.is_(True),
+        )
+    ).first()
+    if total_count is None:
+        raise HTTPException(status_code=404, detail="Habit keyword not found")
+
+    response.headers["Cache-Control"] = "no-store"
+    return {"total_count": total_count}
