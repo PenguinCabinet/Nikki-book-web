@@ -435,6 +435,7 @@ def open_habit_collaborative(session, user_id):
 def persist_habit_collaborative(session, key, _row, doc, user_id):
     keywords = parse_habit_keywords(doc)
     replace_habit_keywords(session, user_id, keywords)
+    session.flush()
     hydrate_habit_keyword_counts(session, user_id, doc)
     save_document(session, key, doc)
 
@@ -502,8 +503,8 @@ def hydrate_habit_keyword_counts(session: Session, user_id: int, doc):
     if not isinstance(data, list):
         return
 
-    counts = {
-        habit_keyword.keyword: habit_keyword.total_count
+    habit_keywords = {
+        habit_keyword.keyword: habit_keyword
         for habit_keyword in session.exec(
             select(HabitKeyword).where(HabitKeyword.user_id == user_id)
         )
@@ -515,9 +516,16 @@ def hydrate_habit_keyword_counts(session: Session, user_id: int, doc):
         keyword = item.get("keyword")
         if not isinstance(keyword, str):
             continue
-        total_count = counts.get(keyword.strip(), 0)
+        habit_keyword = habit_keywords.get(keyword.strip())
+        total_count = habit_keyword.total_count if habit_keyword else 0
+        habit_keyword_id = habit_keyword.id if habit_keyword else None
         legacy_count = item.pop("continueCount", None)
-        if item.get("totalCount") != total_count or legacy_count is not None:
+        if (
+            item.get("habitKeywordId") != habit_keyword_id
+            or item.get("totalCount") != total_count
+            or legacy_count is not None
+        ):
+            item["habitKeywordId"] = habit_keyword_id
             item["totalCount"] = total_count
             changed = True
 

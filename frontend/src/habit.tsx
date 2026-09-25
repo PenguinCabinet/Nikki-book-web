@@ -27,6 +27,9 @@ function Habit() {
         <Table className="habit-settings__table" responsive>
           <thead>
             <tr>
+              <th scope="col" className="habit-settings__id-column">
+                ID
+              </th>
               <th scope="col" className="habit-settings__public-column">
                 公開
               </th>
@@ -42,6 +45,9 @@ function Habit() {
           <tbody>
             {keywords.map((habitKeyword) => (
               <tr key={habitKeyword.id}>
+                <td className="habit-settings__id-cell" data-label="ID">
+                  {habitKeyword.habitKeywordId ?? '—'}
+                </td>
                 <td className="habit-settings__public-cell" data-label="公開">
                   <Form.Check
                     type="checkbox"

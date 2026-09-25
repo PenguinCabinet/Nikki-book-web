@@ -49,6 +49,13 @@
   border-bottom: 0;
 }
 
+.habit-settings__id-column,
+.habit-settings__id-cell {
+  width: 4rem;
+  color: #6c757d;
+  text-align: center;
+}
+
 .habit-settings__public-column,
 .habit-settings__public-cell {
   width: 5rem;
@@ -152,6 +159,8 @@
   }
 
   .habit-settings__table tbody td,
+  .habit-settings__id-column,
+  .habit-settings__id-cell,
   .habit-settings__public-column,
   .habit-settings__public-cell,
   .habit-settings__continued-column,

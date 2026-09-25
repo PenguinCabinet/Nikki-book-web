@@ -136,6 +136,13 @@ class SyncTests(unittest.TestCase):
             ).all()
 
         self.assertEqual(
+            {
+                item["keyword"]: item["habitKeywordId"]
+                for item in json.loads(str(synchronized["text"]))
+            },
+            {keyword.keyword: keyword.id for keyword in keywords},
+        )
+        self.assertEqual(
             [(keyword.keyword, keyword.is_public) for keyword in keywords],
             [("読書", True), ("運動", False)],
         )

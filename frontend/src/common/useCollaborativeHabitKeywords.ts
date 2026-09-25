@@ -4,6 +4,7 @@ import { useCollaborativeText } from './useCollaborativeText';
 
 export type HabitKeyword = {
   id: number;
+  habitKeywordId: number | null;
   isPublic: boolean;
   keyword: string;
   totalCount: number;
@@ -11,6 +12,7 @@ export type HabitKeyword = {
 
 const createKeyword = (id: number): HabitKeyword => ({
   id,
+  habitKeywordId: null,
   isPublic: false,
   keyword: '',
   totalCount: 0,
@@ -31,6 +33,9 @@ function parseHabitKeywords(text: string): HabitKeyword[] {
 
       return [{
         id: typeof record.id === 'number' ? record.id : index + 1,
+        habitKeywordId: typeof record.habitKeywordId === 'number'
+          ? record.habitKeywordId
+          : null,
         isPublic: record.isPublic === true,
         keyword,
         totalCount: typeof record.totalCount === 'number'
