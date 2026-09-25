@@ -392,7 +392,7 @@ def open_collaborative(session, user_id, kind, date=None):
     return key, row, load_document(session, key, row.text)
 
 
-def persist_collaborative(session, key, row, doc):
+def persist_collaborative(session, key, row, doc, _user_id=None):
     save_document(session, key, doc)
     row.text = str(doc["text"])
     session.add(row)
@@ -400,10 +400,11 @@ def persist_collaborative(session, key, row, doc):
 
 def open_habit_collaborative(session, user_id):
     key = f"{user_id}:habit"
-    return key, load_document(session, key, "")
+    return key, None, load_document(session, key, "")
 
 
-def persist_habit_collaborative(session, key, doc, user_id, keywords):
+def persist_habit_collaborative(session, key, _row, doc, user_id):
+    keywords = parse_habit_keywords(doc)
     save_document(session, key, doc)
     replace_habit_keywords(session, user_id, keywords)
 
@@ -488,30 +489,38 @@ def apply_sync_payload(doc, payload):
         raise HTTPException(400, "Invalid CRDT update") from exc
 
 
-async def sync_document(request, user_id, kind, date=None):
+async def sync_crdt_document(request, user_id, open_document, persist_document):
     payload = await read_sync_payload(request, user_id)
     with Session(engine) as write_session:
         # SQLite serializes read/merge/write across processes, not just coroutines.
         lock_writes(write_session)
-        key, row, doc = open_collaborative(write_session, user_id, kind, date)
+        key, row, doc = open_document(write_session, user_id)
         apply_sync_payload(doc, payload)
-        persist_collaborative(write_session, key, row, doc)
+        persist_document(write_session, key, row, doc, user_id)
         update = doc.get_update()
         write_session.commit()
     return Response(content=update, media_type="application/octet-stream", headers={"Cache-Control": "no-store"})
+
+
+async def sync_document(request, user_id, kind, date=None):
+    def open_document(session, current_user_id):
+        return open_collaborative(session, current_user_id, kind, date)
+
+    return await sync_crdt_document(
+        request,
+        user_id,
+        open_document,
+        persist_collaborative,
+    )
 
 
 async def sync_habit_document(request, user_id):
-    payload = await read_sync_payload(request, user_id)
-    with Session(engine) as write_session:
-        lock_writes(write_session)
-        key, doc = open_habit_collaborative(write_session, user_id)
-        apply_sync_payload(doc, payload)
-        keywords = parse_habit_keywords(doc)
-        persist_habit_collaborative(write_session, key, doc, user_id, keywords)
-        update = doc.get_update()
-        write_session.commit()
-    return Response(content=update, media_type="application/octet-stream", headers={"Cache-Control": "no-store"})
+    return await sync_crdt_document(
+        request,
+        user_id,
+        open_habit_collaborative,
+        persist_habit_collaborative,
+    )
 
 
 @app.post("/nikki/{date_str}/sync")
