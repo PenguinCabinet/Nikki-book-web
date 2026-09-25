@@ -15,7 +15,7 @@ from concurrent.futures import ThreadPoolExecutor
 os.environ.setdefault("NIKKI_BOOK_SECRET_KEY", "test-only")
 from fastapi.testclient import TestClient
 from sqlmodel import Session, SQLModel, create_engine, select
-from pycrdt import Doc, Text
+from pycrdt import Doc, Map, Text
 import main
 from crdt import replace_text
 
@@ -111,22 +111,20 @@ class SyncTests(unittest.TestCase):
         self.assertIn("・買い物😀", str(self.sync(path=f'/nikki/{today}/sync')['text']))
 
     def test_habit_sync_materializes_keywords(self):
-        habit = Doc({"text": Text()})
-        habit["text"].insert(0, json.dumps([
-            {"id": 1, "isPublic": True, "keyword": "読書"},
-            {"id": 2, "isPublic": False, "keyword": "運動"},
-        ], ensure_ascii=False))
+        habit = Doc({"habits": Map(), "habitMetadata": Map()})
+        habit["habits"]["reading"] = Map({"isPublic": True, "keyword": "読書"})
+        habit["habits"]["exercise"] = Map({"isPublic": False, "keyword": "運動"})
 
         response = self.client.post(
-            "/habit/sync",
+            "/habit/v2/sync",
             content=habit.get_update(),
             headers={"X-Sync-User": "1"},
         )
         self.assertEqual(response.status_code, 200, response.text)
-        synchronized = Doc({"text": Text()})
+        synchronized = Doc({"habits": Map(), "habitMetadata": Map()})
         synchronized.apply_update(response.content)
         self.assertEqual(
-            [item["totalCount"] for item in json.loads(str(synchronized["text"]))],
+            [item["totalCount"] for item in synchronized["habitMetadata"].values()],
             [0, 0],
         )
 
@@ -137,14 +135,34 @@ class SyncTests(unittest.TestCase):
 
         self.assertEqual(
             {
-                item["keyword"]: item["habitKeywordId"]
-                for item in json.loads(str(synchronized["text"]))
+                synchronized["habits"][sync_id]["keyword"]: item["habitKeywordId"]
+                for sync_id, item in synchronized["habitMetadata"].items()
             },
             {keyword.keyword: keyword.id for keyword in keywords},
         )
         self.assertEqual(
-            [(keyword.keyword, keyword.is_public) for keyword in keywords],
-            [("読書", True), ("運動", False)],
+            {keyword.keyword: keyword.is_public for keyword in keywords},
+            {"読書": True, "運動": False},
+        )
+
+        ids = {keyword.keyword: keyword.id for keyword in keywords}
+        habit.apply_update(response.content)
+        habit["habits"]["reading"]["keyword"] = "読書習慣"
+        response = self.client.post(
+            "/habit/v2/sync",
+            content=habit.get_update(),
+            headers={"X-Sync-User": "1"},
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+
+        with Session(main.engine) as session:
+            keywords = session.exec(
+                select(main.HabitKeyword).where(main.HabitKeyword.user_id == 1)
+            ).all()
+
+        self.assertEqual(
+            {keyword.keyword: keyword.id for keyword in keywords},
+            {"読書習慣": ids["読書"], "運動": ids["運動"]},
         )
 
     def test_habit_keyword_count_uses_matching_lines_and_distinct_dates(self):

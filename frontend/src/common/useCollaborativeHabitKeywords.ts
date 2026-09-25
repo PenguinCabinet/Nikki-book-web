@@ -1,110 +1,68 @@
-import { useEffect, useState } from 'react';
-
-import { useCollaborativeText } from './useCollaborativeText';
+import * as Y from 'yjs';
+import { useCollaborativeDocument } from './useCollaborativeDocument';
 
 export type HabitKeyword = {
-  id: number;
+  id: string;
   habitKeywordId: number | null;
   isPublic: boolean;
   keyword: string;
   totalCount: number;
 };
 
-const createKeyword = (id: number): HabitKeyword => ({
-  id,
-  habitKeywordId: null,
-  isPublic: false,
-  keyword: '',
-  totalCount: 0,
-});
+type HabitMetadata = { habitKeywordId: number | null; totalCount: number };
+const emptyKeywords: HabitKeyword[] = [];
+let draftSequence = 0;
 
-function parseHabitKeywords(text: string): HabitKeyword[] {
-  if (!text) return [];
-
-  try {
-    const value: unknown = JSON.parse(text);
-    if (!Array.isArray(value)) return [];
-
-    return value.flatMap((item, index) => {
-      if (typeof item !== 'object' || item === null) return [];
-      const record = item as Record<string, unknown>;
-      const keyword = typeof record.keyword === 'string' ? record.keyword : '';
-      if (!keyword.trim()) return [];
-
-      return [{
-        id: typeof record.id === 'number' ? record.id : index + 1,
-        habitKeywordId: typeof record.habitKeywordId === 'number'
-          ? record.habitKeywordId
-          : null,
-        isPublic: record.isPublic === true,
-        keyword,
-        totalCount: typeof record.totalCount === 'number'
-          ? record.totalCount
-          : typeof record.continueCount === 'number'
-            ? record.continueCount
-            : 0,
-      }];
-    });
-  } catch {
-    return [];
-  }
-}
-
-function serializeHabitKeywords(keywords: HabitKeyword[]) {
-  return JSON.stringify(
-    keywords.filter((habitKeyword) => habitKeyword.keyword.trim()),
-  );
+function readHabitKeywords(doc: Y.Doc): HabitKeyword[] {
+  const metadata = doc.getMap<HabitMetadata>('habitMetadata');
+  return Array.from(doc.getMap<Y.Map<unknown>>('habits').entries())
+    .filter(([, row]) => row instanceof Y.Map)
+    .sort(([aId, a], [bId, b]) =>
+      Number(a.get('order') ?? 0) - Number(b.get('order') ?? 0) || aId.localeCompare(bId))
+    .map(([id, row]) => ({
+      id,
+      habitKeywordId: metadata.get(id)?.habitKeywordId ?? null,
+      totalCount: metadata.get(id)?.totalCount ?? 0,
+      keyword: String(row.get('keyword') ?? ''),
+      isPublic: row.get('isPublic') === true,
+    }));
 }
 
 export function useCollaborativeHabitKeywords() {
-  const sync = useCollaborativeText('/habit');
-  const [keywords, setKeywords] = useState<HabitKeyword[]>([createKeyword(1)]);
-  const [nextId, setNextId] = useState(2);
+  const sync = useCollaborativeDocument('/habit/v2', readHabitKeywords, emptyKeywords);
 
-  useEffect(() => {
-    if (sync.loading) return;
+  const addKeyword = () => sync.change(doc => {
+    const rows = doc.getMap<Y.Map<unknown>>('habits');
+    // A row's identity never changes when the server assigns its database ID.
+    const id = typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : `${doc.clientID}-${Date.now()}-${++draftSequence}`;
+    const order = Math.max(0, ...Array.from(rows.values(), row => Number(row.get('order') ?? 0))) + 1;
+    const row = new Y.Map<unknown>();
+    row.set('keyword', '');
+    row.set('isPublic', false);
+    row.set('order', order);
+    rows.set(id, row);
+  });
 
-    const syncedKeywords = parseHabitKeywords(sync.text);
-    setKeywords(syncedKeywords.length > 0 ? syncedKeywords : [createKeyword(1)]);
-    setNextId(
-      Math.max(2, ...syncedKeywords.map((habitKeyword) => habitKeyword.id + 1)),
-    );
-  }, [sync.loading, sync.text]);
-
-  const persistKeywords = (nextKeywords: HabitKeyword[]) => {
-    sync.setText(serializeHabitKeywords(nextKeywords));
+  const updateKeyword = (id: string, update: Partial<Pick<HabitKeyword, 'keyword' | 'isPublic'>>) => {
+    sync.change(doc => {
+      const row = doc.getMap<Y.Map<unknown>>('habits').get(id);
+      if (!row) return; // A remotely deleted row must not be recreated by a stale input.
+      if (update.keyword !== undefined) row.set('keyword', update.keyword);
+      if (update.isPublic !== undefined) row.set('isPublic', update.isPublic);
+    });
   };
 
-  const updateKeyword = (
-    id: number,
-    update: Partial<Omit<HabitKeyword, 'id'>>,
-  ) => {
-    const updatedKeywords = keywords.map((habitKeyword) =>
-      habitKeyword.id === id ? { ...habitKeyword, ...update } : habitKeyword,
-    );
-    setKeywords(updatedKeywords);
-    persistKeywords(updatedKeywords);
-  };
-
-  const addKeyword = () => {
-    const updatedKeywords = [...keywords, createKeyword(nextId)];
-    setKeywords(updatedKeywords);
-    setNextId((currentId) => currentId + 1);
-    persistKeywords(updatedKeywords);
-  };
-
-  const deleteKeyword = (id: number) => {
-    const updatedKeywords = keywords.filter((habitKeyword) => habitKeyword.id !== id);
-    setKeywords(updatedKeywords.length > 0 ? updatedKeywords : [createKeyword(nextId)]);
-    if (updatedKeywords.length === 0) {
-      setNextId((currentId) => currentId + 1);
-    }
-    persistKeywords(updatedKeywords);
-  };
+  const deleteKeyword = (id: string) => sync.change(doc => {
+    doc.getMap('habits').delete(id);
+  });
 
   return {
-    keywords,
+    keywords: sync.value,
     loading: sync.loading,
+    status: sync.status,
+    setComposing: sync.setComposing,
     updateKeyword,
     addKeyword,
     deleteKeyword,

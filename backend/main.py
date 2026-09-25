@@ -1,12 +1,13 @@
 from typing import Annotated
 import datetime
-import json
 import secrets
+import uuid
 import io
 import zipfile
 import re
 import os
-from crdt import lock_writes, load_document, save_document, replace_text
+from crdt import CollaborativeDocument, lock_writes, load_document, save_document, replace_text
+from pycrdt import Doc, Map
 from logging import getLogger
 from zoneinfo import ZoneInfo
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -20,7 +21,7 @@ from fastapi.security import OAuth2PasswordRequestForm
 from pwdlib import PasswordHash
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import inspect
+from sqlalchemy import Index, inspect
 from sqlmodel import Field, Session, SQLModel, create_engine, select
 from dotenv import load_dotenv
 
@@ -59,9 +60,11 @@ class Nikki_template(SQLModel, table=True):
 
 class HabitKeyword(SQLModel, table=True):
     __tablename__ = "habit_keyword"
+    __table_args__ = (Index("ix_habit_keyword_user_sync_id", "user_id", "sync_id", unique=True),)
 
     id: int | None = Field(default=None, primary_key=True)
     user_id: int = Field(foreign_key="user.id", index=True)
+    sync_id: str | None = Field(default=None)
     is_public: bool = Field(default=False)
     total_count: int = Field(default=0)
     keyword: str
@@ -81,6 +84,13 @@ engine = create_engine(sqlite_url, echo=True, connect_args=connect_args)
 def create_db_and_tables():
     SQLModel.metadata.create_all(engine)
     columns = {column["name"] for column in inspect(engine).get_columns("habit_keyword")}
+    with engine.begin() as connection:
+        if "sync_id" not in columns:
+            connection.exec_driver_sql("ALTER TABLE habit_keyword ADD COLUMN sync_id TEXT")
+        connection.exec_driver_sql(
+            "CREATE UNIQUE INDEX IF NOT EXISTS ix_habit_keyword_user_sync_id "
+            "ON habit_keyword (user_id, sync_id)"
+        )
     if "total_count" not in columns:
         with engine.begin() as connection:
             if "continue_count" in columns:
@@ -428,45 +438,55 @@ def persist_collaborative(session, key, row, doc, _user_id=None):
 
 
 def open_habit_collaborative(session, user_id):
-    key = f"{user_id}:habit"
-    return key, None, load_document(session, key, "")
+    key = f"{user_id}:habit:v2"
+    stored = session.get(CollaborativeDocument, key)
+    doc = Doc({"habits": Map(), "habitMetadata": Map()})
+    if stored is not None:
+        doc.apply_update(stored.state)
+    else:
+        # Migrate once from DB rows, preserving IDs even when keywords are duplicates.
+        # Keep the old JSON document intact; its broken merge history is not reused.
+        keywords = session.exec(
+            select(HabitKeyword).where(HabitKeyword.user_id == user_id).order_by(HabitKeyword.id)
+        ).all()
+        with doc.transaction():
+            for order, keyword in enumerate(keywords):
+                if keyword.sync_id is None:
+                    keyword.sync_id = uuid.uuid4().hex
+                    session.add(keyword)
+                doc["habits"][keyword.sync_id] = Map({
+                    "keyword": keyword.keyword,
+                    "isPublic": keyword.is_public,
+                    "order": order,
+                })
+        hydrate_habit_keyword_metadata(session, user_id, doc)
+    return key, None, doc
 
 
 def persist_habit_collaborative(session, key, _row, doc, user_id):
     keywords = parse_habit_keywords(doc)
     replace_habit_keywords(session, user_id, keywords)
     session.flush()
-    hydrate_habit_keyword_counts(session, user_id, doc)
+    hydrate_habit_keyword_metadata(session, user_id, doc)
     save_document(session, key, doc)
 
 
 def parse_habit_keywords(doc):
-    try:
-        data = json.loads(str(doc["text"]) or "[]")
-    except json.JSONDecodeError as exc:
-        raise HTTPException(400, "習慣キーワードのデータ形式が不正です。") from exc
-
-    if not isinstance(data, list):
-        raise HTTPException(400, "習慣キーワードのデータ形式が不正です。")
-
     keywords = []
-    for item in data:
-        if not isinstance(item, dict):
+    for sync_id, item in doc["habits"].items():
+        if not sync_id or len(sync_id) > 128 or not isinstance(item, Map):
             raise HTTPException(400, "習慣キーワードのデータ形式が不正です。")
 
         keyword = item.get("keyword")
         if not isinstance(keyword, str):
             raise HTTPException(400, "習慣キーワードのデータ形式が不正です。")
-        keyword = keyword.strip()
-        if not keyword:
-            continue
-
-        is_public = item.get("isPublic", item.get("is_public", False))
+        is_public = item.get("isPublic", False)
         if not isinstance(is_public, bool):
             raise HTTPException(400, "習慣キーワードの公開設定が不正です。")
 
         keywords.append({
-            "keyword": keyword,
+            "sync_id": sync_id,
+            "keyword": keyword.strip(),
             "is_public": is_public,
         })
 
@@ -477,64 +497,50 @@ def replace_habit_keywords(session: Session, user_id: int, keywords):
     existing_keywords = session.exec(
         select(HabitKeyword).where(HabitKeyword.user_id == user_id)
     ).all()
-    existing_by_keyword = {}
-    for habit_keyword in existing_keywords:
-        existing_by_keyword.setdefault(habit_keyword.keyword, []).append(habit_keyword)
+    existing_by_sync_id = {habit_keyword.sync_id: habit_keyword for habit_keyword in existing_keywords}
+    active_ids = {keyword["sync_id"] for keyword in keywords}
 
     for keyword in keywords:
-        matching_keywords = existing_by_keyword.get(keyword["keyword"], [])
-        if matching_keywords:
-            habit_keyword = matching_keywords.pop(0)
+        habit_keyword = existing_by_sync_id.get(keyword["sync_id"])
+        if habit_keyword is not None:
+            if habit_keyword.keyword != keyword["keyword"]:
+                habit_keyword.total_count = 0
+            habit_keyword.keyword = keyword["keyword"]
             habit_keyword.is_public = keyword["is_public"]
             session.add(habit_keyword)
-        else:
+        elif keyword["keyword"]:
             session.add(HabitKeyword(user_id=user_id, **keyword))
 
-    for remaining_keywords in existing_by_keyword.values():
-        for habit_keyword in remaining_keywords:
+    for habit_keyword in existing_keywords:
+        if habit_keyword.sync_id not in active_ids:
             session.delete(habit_keyword)
 
 
-def hydrate_habit_keyword_counts(session: Session, user_id: int, doc):
-    try:
-        data = json.loads(str(doc["text"]) or "[]")
-    except json.JSONDecodeError:
-        return
-    if not isinstance(data, list):
-        return
-
+def hydrate_habit_keyword_metadata(session: Session, user_id: int, doc):
     habit_keywords = {
-        habit_keyword.keyword: habit_keyword
+        habit_keyword.sync_id: habit_keyword
         for habit_keyword in session.exec(
             select(HabitKeyword).where(HabitKeyword.user_id == user_id)
         )
     }
-    changed = False
-    for item in data:
-        if not isinstance(item, dict):
-            continue
-        keyword = item.get("keyword")
-        if not isinstance(keyword, str):
-            continue
-        habit_keyword = habit_keywords.get(keyword.strip())
-        total_count = habit_keyword.total_count if habit_keyword else 0
-        habit_keyword_id = habit_keyword.id if habit_keyword else None
-        legacy_count = item.pop("continueCount", None)
-        if (
-            item.get("habitKeywordId") != habit_keyword_id
-            or item.get("totalCount") != total_count
-            or legacy_count is not None
-        ):
-            item["habitKeywordId"] = habit_keyword_id
-            item["totalCount"] = total_count
-            changed = True
-
-    if changed:
-        replace_text(doc, json.dumps(data, ensure_ascii=False))
+    # Server-owned values never rewrite editable fields or identify rows by keyword.
+    metadata = doc["habitMetadata"]
+    with doc.transaction():
+        for sync_id in doc["habits"]:
+            habit_keyword = habit_keywords.get(sync_id)
+            value = {
+                "habitKeywordId": habit_keyword.id if habit_keyword else None,
+                "totalCount": habit_keyword.total_count if habit_keyword else 0,
+            }
+            if metadata.get(sync_id) != value:
+                metadata[sync_id] = value
+        for sync_id in list(metadata):
+            if sync_id not in doc["habits"]:
+                del metadata[sync_id]
 
 
 def line_contains_habit_keyword(text: str, keyword: str) -> bool:
-    return any("✅" in line and keyword in line for line in text.splitlines())
+    return bool(keyword) and any("✅" in line and keyword in line for line in text.splitlines())
 
 
 def count_habit_keyword_continuations():
@@ -561,7 +567,7 @@ def count_habit_keyword_continuations():
         }
         for user_id in user_ids:
             key, _row, doc = open_habit_collaborative(session, user_id)
-            hydrate_habit_keyword_counts(session, user_id, doc)
+            hydrate_habit_keyword_metadata(session, user_id, doc)
             save_document(session, key, doc)
 
         session.commit()
@@ -640,5 +646,10 @@ async def sync_template(request: Request, current_user: Annotated[User, Depends(
 
 
 @app.post("/habit/sync")
+async def sync_habit_legacy(current_user: Annotated[User, Depends(get_current_active_user)]):
+    raise HTTPException(409, "習慣の同期方式が更新されました。画面を再読み込みしてください。")
+
+
+@app.post("/habit/v2/sync")
 async def sync_habit(request: Request, current_user: Annotated[User, Depends(get_current_active_user)]):
     return await sync_habit_document(request, current_user.id)

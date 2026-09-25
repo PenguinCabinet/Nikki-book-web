@@ -14,6 +14,8 @@ function Habit() {
   const {
     keywords,
     loading,
+    status,
+    setComposing,
     updateKeyword,
     addKeyword,
     deleteKeyword,
@@ -62,7 +64,7 @@ function Habit() {
                     aria-label="この習慣を公開する"
                   />
                 </td>
-                <td className="habit-settings__continued-cell" data-label="継続日数">
+                <td className="habit-settings__continued-cell" data-label="累計日数">
                   <span className="habit-settings__continue-count">
                     {habitKeyword.totalCount}日
                   </span>
@@ -72,6 +74,11 @@ function Habit() {
                     type="text"
                     value={habitKeyword.keyword}
                     disabled={loading}
+                    onCompositionStart={() => setComposing(true)}
+                    onCompositionEnd={(event) => {
+                      updateKeyword(habitKeyword.id, { keyword: event.currentTarget.value });
+                      setComposing(false);
+                    }}
                     onChange={(event) =>
                       updateKeyword(habitKeyword.id, {
                         keyword: event.target.value,
@@ -107,6 +114,7 @@ function Habit() {
           +
         </Button>
       </div>
+      <p role="status" className="text-muted mt-2">{status}</p>
 
       <Modal
         show={deleteTarget !== null}
