@@ -68,7 +68,7 @@ function Habit() {
           <tbody>
             {keywords.map((habitKeyword) => (
               <tr key={habitKeyword.id}>
-                <td className="habit-settings__public-cell">
+                <td className="habit-settings__public-cell" data-label="公開">
                   <Form.Check
                     type="checkbox"
                     id={`habit-public-${habitKeyword.id}`}
@@ -81,10 +81,10 @@ function Habit() {
                     aria-label="この習慣を公開する"
                   />
                 </td>
-                <td className="habit-settings__continued-cell">
+                <td className="habit-settings__continued-cell" data-label="続いた日時">
                   <span className="habit-settings__not-recorded">未計測</span>
                 </td>
-                <td>
+                <td data-label="キーワード">
                   <Form.Control
                     type="text"
                     value={habitKeyword.keyword}
@@ -97,7 +97,7 @@ function Habit() {
                     aria-label="キーワード"
                   />
                 </td>
-                <td className="habit-settings__delete-cell">
+                <td className="habit-settings__delete-cell" data-label="操作">
                   <Button
                     variant="link"
                     className="habit-settings__delete-button"
