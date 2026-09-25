@@ -14,7 +14,6 @@ function Habit() {
   const {
     keywords,
     loading,
-    status,
     setComposing,
     updateKeyword,
     addKeyword,
@@ -114,8 +113,6 @@ function Habit() {
           +
         </Button>
       </div>
-      <p role="status" className="text-muted mt-2">{status}</p>
-
       <Modal
         show={deleteTarget !== null}
         onHide={() => setDeleteTarget(null)}

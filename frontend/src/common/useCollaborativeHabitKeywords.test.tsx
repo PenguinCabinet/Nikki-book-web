@@ -89,7 +89,11 @@ it('keeps focus, the latest input and blank rows when an older create response a
   fireEvent.change(input, { target: { value: '読書😀' } });
   fireEvent.click(add);
   await act(async () => releaseResponse!());
-  await waitFor(() => expect(screen.getByRole('status').textContent).toBe('同期済み'));
+  await waitFor(() => expect(
+    Array.from(server.getMap<Y.Map<unknown>>('habits').values())
+      .some(row => row.get('keyword') === '読書😀'),
+  ).toBe(true));
+  expect(screen.queryByRole('status')).toBeNull();
   expect(screen.getAllByRole('textbox')).toHaveLength(2);
   expect(screen.getAllByRole('textbox')[0]).toBe(input);
   expect(input.value).toBe('読書😀');
