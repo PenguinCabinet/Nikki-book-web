@@ -508,7 +508,7 @@ def replace_habit_keywords(session: Session, user_id: int, keywords):
             habit_keyword.keyword = keyword["keyword"]
             habit_keyword.is_public = keyword["is_public"]
             session.add(habit_keyword)
-        elif keyword["keyword"]:
+        else:
             session.add(HabitKeyword(user_id=user_id, **keyword))
 
     for habit_keyword in existing_keywords:

@@ -31,19 +31,22 @@ function readHabitKeywords(doc: Y.Doc): HabitKeyword[] {
 export function useCollaborativeHabitKeywords() {
   const sync = useCollaborativeDocument('/habit/v2', readHabitKeywords, emptyKeywords);
 
-  const addKeyword = () => sync.change(doc => {
-    const rows = doc.getMap<Y.Map<unknown>>('habits');
-    // A row's identity never changes when the server assigns its database ID.
-    const id = typeof crypto.randomUUID === 'function'
-      ? crypto.randomUUID()
-      : `${doc.clientID}-${Date.now()}-${++draftSequence}`;
-    const order = Math.max(0, ...Array.from(rows.values(), row => Number(row.get('order') ?? 0))) + 1;
-    const row = new Y.Map<unknown>();
-    row.set('keyword', '');
-    row.set('isPublic', false);
-    row.set('order', order);
-    rows.set(id, row);
-  });
+  const addKeyword = () => {
+    sync.change(doc => {
+      const rows = doc.getMap<Y.Map<unknown>>('habits');
+      // A row's identity never changes when the server assigns its database ID.
+      const id = typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID()
+        : `${doc.clientID}-${Date.now()}-${++draftSequence}`;
+      const order = Math.max(0, ...Array.from(rows.values(), row => Number(row.get('order') ?? 0))) + 1;
+      const row = new Y.Map<unknown>();
+      row.set('keyword', '');
+      row.set('isPublic', false);
+      row.set('order', order);
+      rows.set(id, row);
+    });
+    sync.syncNow();
+  };
 
   const updateKeyword = (id: string, update: Partial<Pick<HabitKeyword, 'keyword' | 'isPublic'>>) => {
     sync.change(doc => {

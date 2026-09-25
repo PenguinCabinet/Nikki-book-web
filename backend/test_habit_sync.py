@@ -75,16 +75,26 @@ class HabitSyncTests(unittest.TestCase):
         self.add(doc, "b")
         self.sync(doc)
         self.assertEqual(set(doc["habits"]), {"a", "b"})
-        self.assertEqual(self.rows(), [])
+        ids = {row.sync_id: row.id for row in self.rows()}
+        self.assertEqual(set(ids), {"a", "b"})
+        self.assertEqual(len(set(ids.values())), 2)
+        self.assertEqual(
+            {key: value["habitKeywordId"] for key, value in doc["habitMetadata"].items()},
+            ids,
+        )
+        self.sync(doc)
+        self.assertEqual({row.sync_id: row.id for row in self.rows()}, ids)
         doc["habits"]["a"]["keyword"] = "読書"
         self.sync(doc)
-        first_id = self.rows()[0].id
         doc["habits"]["a"]["keyword"] = ""
         self.sync(doc)
         main.count_habit_keyword_continuations()
         doc["habits"]["a"]["keyword"] = "運動"
         self.sync(doc)
-        self.assertEqual([(row.id, row.keyword) for row in self.rows()], [(first_id, "運動")])
+        self.assertEqual(
+            {row.sync_id: (row.id, row.keyword) for row in self.rows()},
+            {"a": (ids["a"], "運動"), "b": (ids["b"], "")},
+        )
         self.assertEqual(set(doc["habits"]), {"a", "b"})
 
     def test_duplicate_keywords_have_distinct_stable_database_ids(self):

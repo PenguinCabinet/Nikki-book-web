@@ -6,7 +6,11 @@ import { IndexeddbPersistence } from 'y-indexeddb';
 export function useCollaborativeDocument<T>(path: string, read: (doc: Y.Doc) => T, empty: T) {
     const navigate = useNavigate();
     const [view, setView] = useState({ path: '', value: empty, ready: false, status: '読み込み中…' });
-    const editor = useRef<{ edit: (change: (doc: Y.Doc) => void) => void; compose: (active: boolean) => void } | null>(null);
+    const editor = useRef<{
+        edit: (change: (doc: Y.Doc) => void) => void;
+        compose: (active: boolean) => void;
+        send: () => void;
+    } | null>(null);
 
     useEffect(() => {
         const doc = new Y.Doc();
@@ -120,6 +124,7 @@ export function useCollaborativeDocument<T>(path: string, read: (doc: Y.Doc) => 
         editor.current = {
             edit: change => { if (ready) doc.transact(() => change(doc), 'local'); },
             compose: active => { composing = active; if (!active) schedule(); },
+            send: () => { if (ready) void sync(); },
         };
         void start();
         const interval = setInterval(reconnect, 2000);
@@ -150,6 +155,7 @@ export function useCollaborativeDocument<T>(path: string, read: (doc: Y.Doc) => 
         loading: view.path !== path || !view.ready,
         status: view.path === path ? view.status : '読み込み中…',
         change: (change: (doc: Y.Doc) => void) => editor.current?.edit(change),
+        syncNow: () => editor.current?.send(),
         setComposing: (active: boolean) => editor.current?.compose(active),
     };
 }

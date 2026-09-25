@@ -33,7 +33,7 @@ beforeEach(() => {
     const metadata = server.getMap('habitMetadata');
     server.transact(() => {
       for (const [key, row] of rows) {
-        if (String(row.get('keyword')).trim() && !ids.has(key)) ids.set(key, nextId++);
+        if (!ids.has(key)) ids.set(key, nextId++);
         const value = { habitKeywordId: ids.get(key) ?? null, totalCount: 0 };
         if (JSON.stringify(metadata.get(key)) !== JSON.stringify(value)) metadata.set(key, value);
       }
@@ -59,27 +59,31 @@ afterEach(async () => {
 it('keeps multiple empty added rows through synchronization and metadata updates', async () => {
   const hook = renderHook(() => useCollaborativeHabitKeywords());
   await waitFor(() => expect(hook.result.current.loading).toBe(false));
+  const requestsBeforeAdd = vi.mocked(fetch).mock.calls.length;
   act(() => {
     hook.result.current.addKeyword();
     hook.result.current.addKeyword();
   });
+  expect(vi.mocked(fetch).mock.calls.length).toBeGreaterThan(requestsBeforeAdd);
   const rowIds = hook.result.current.keywords.map(row => row.id);
   expect(new Set(rowIds).size).toBe(2);
   await waitFor(() => expect(hook.result.current.status).toBe('同期済み'));
+  expect(hook.result.current.keywords.map(row => row.habitKeywordId)).toEqual([1, 2]);
   act(() => hook.result.current.updateKeyword(rowIds[0], { keyword: '読書' }));
   await waitFor(() => expect(hook.result.current.keywords[0].habitKeywordId).toBe(1));
   expect(hook.result.current.keywords.map(row => row.id)).toEqual(rowIds);
   expect(hook.result.current.keywords[1].keyword).toBe('');
+  expect(nextId).toBe(3);
 });
 
 it('keeps focus, the latest input and blank rows when an older create response arrives', async () => {
   render(<Habit />);
   const add = screen.getByRole('button', { name: '+' });
   await waitFor(() => expect((add as HTMLButtonElement).disabled).toBe(false));
+  holdNextResponse = true;
   fireEvent.click(add);
   const input = screen.getByRole('textbox', { name: 'キーワード' }) as HTMLInputElement;
   input.focus();
-  holdNextResponse = true;
   fireEvent.change(input, { target: { value: '読' } });
   await waitFor(() => expect(releaseResponse).toBeDefined());
   fireEvent.change(input, { target: { value: '読書😀' } });
@@ -90,8 +94,8 @@ it('keeps focus, the latest input and blank rows when an older create response a
   expect(screen.getAllByRole('textbox')[0]).toBe(input);
   expect(input.value).toBe('読書😀');
   expect(document.activeElement).toBe(input);
-  expect(ids.size).toBe(1);
-  expect(nextId).toBe(2);
+  expect(ids.size).toBe(2);
+  expect(nextId).toBe(3);
 });
 
 it('preserves IDs for duplicate keywords, renames and clearing a saved keyword', async () => {
@@ -132,7 +136,7 @@ it('restores offline drafts and edits from IndexedDB and assigns IDs once on ret
   act(() => window.dispatchEvent(new Event('online')));
   await waitFor(() => expect(next.result.current.status).toBe('同期済み'));
   expect(next.result.current.keywords.map(row => row.id)).toEqual(rowIds);
-  expect(nextId).toBe(2);
+  expect(nextId).toBe(3);
 });
 
 it('merges another device adding a row while the local row is edited', async () => {
@@ -158,9 +162,9 @@ it('merges another device adding a row while the local row is edited', async () 
 it('does not resurrect a deleted row after a delayed create response', async () => {
   const hook = renderHook(() => useCollaborativeHabitKeywords());
   await waitFor(() => expect(hook.result.current.loading).toBe(false));
+  holdNextResponse = true;
   act(() => hook.result.current.addKeyword());
   const id = hook.result.current.keywords[0].id;
-  holdNextResponse = true;
   act(() => hook.result.current.updateKeyword(id, { keyword: '読書' }));
   await waitFor(() => expect(releaseResponse).toBeDefined());
   act(() => hook.result.current.deleteKeyword(id));
