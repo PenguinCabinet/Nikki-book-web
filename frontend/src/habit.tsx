@@ -31,7 +31,7 @@ function Habit() {
                 公開
               </th>
               <th scope="col" className="habit-settings__continued-column">
-                続いた日時
+                累計日数
               </th>
               <th scope="col">キーワード</th>
               <th scope="col" className="habit-settings__delete-column">
@@ -56,8 +56,10 @@ function Habit() {
                     aria-label="この習慣を公開する"
                   />
                 </td>
-                <td className="habit-settings__continued-cell" data-label="続いた日時">
-                  <span className="habit-settings__not-recorded">未計測</span>
+                <td className="habit-settings__continued-cell" data-label="継続日数">
+                  <span className="habit-settings__continue-count">
+                    {habitKeyword.totalCount}日
+                  </span>
                 </td>
                 <td data-label="キーワード">
                   <Form.Control

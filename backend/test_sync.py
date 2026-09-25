@@ -123,6 +123,12 @@ class SyncTests(unittest.TestCase):
             headers={"X-Sync-User": "1"},
         )
         self.assertEqual(response.status_code, 200, response.text)
+        synchronized = Doc({"text": Text()})
+        synchronized.apply_update(response.content)
+        self.assertEqual(
+            [item["totalCount"] for item in json.loads(str(synchronized["text"]))],
+            [0, 0],
+        )
 
         with Session(main.engine) as session:
             keywords = session.exec(
@@ -132,6 +138,31 @@ class SyncTests(unittest.TestCase):
         self.assertEqual(
             [(keyword.keyword, keyword.is_public) for keyword in keywords],
             [("読書", True), ("運動", False)],
+        )
+
+    def test_habit_keyword_count_uses_matching_lines_and_distinct_dates(self):
+        with Session(main.engine) as session:
+            session.add_all([
+                main.HabitKeyword(user_id=1, keyword="読書"),
+                main.HabitKeyword(user_id=1, keyword="運動"),
+                main.Nikki(user_id=1, date=datetime.date(2026, 9, 1), text="✅ 読書"),
+                main.Nikki(user_id=1, date=datetime.date(2026, 9, 2), text="✅ 運動\n読書"),
+                main.Nikki(user_id=1, date=datetime.date(2026, 9, 3), text="読書\n✅ 運動"),
+                main.Nikki(user_id=1, date=datetime.date(2026, 9, 4), text="✅ 読書"),
+                main.Nikki(user_id=1, date=datetime.date(2026, 9, 4), text="✅ 読書"),
+            ])
+            session.commit()
+
+        main.count_habit_keyword_continuations()
+
+        with Session(main.engine) as session:
+            keywords = session.exec(
+                select(main.HabitKeyword).where(main.HabitKeyword.user_id == 1)
+            ).all()
+
+        self.assertEqual(
+            {keyword.keyword: keyword.total_count for keyword in keywords},
+            {"読書": 2, "運動": 2},
         )
 
     def test_zip_updates_existing_crdt(self):

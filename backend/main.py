@@ -20,6 +20,7 @@ from fastapi.security import OAuth2PasswordRequestForm
 from pwdlib import PasswordHash
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import inspect
 from sqlmodel import Field, Session, SQLModel, create_engine, select
 from dotenv import load_dotenv
 
@@ -62,7 +63,7 @@ class HabitKeyword(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     user_id: int = Field(foreign_key="user.id", index=True)
     is_public: bool = Field(default=False)
-    continued_at: datetime.datetime | None = Field(default=None)
+    total_count: int = Field(default=0)
     keyword: str
 
 class Nikki_for_client(BaseModel):
@@ -79,6 +80,30 @@ engine = create_engine(sqlite_url, echo=True, connect_args=connect_args)
 
 def create_db_and_tables():
     SQLModel.metadata.create_all(engine)
+    columns = {column["name"] for column in inspect(engine).get_columns("habit_keyword")}
+    if "total_count" not in columns:
+        with engine.begin() as connection:
+            if "continue_count" in columns:
+                connection.exec_driver_sql(
+                    "ALTER TABLE habit_keyword ADD COLUMN total_count INTEGER NOT NULL DEFAULT 0"
+                )
+                connection.exec_driver_sql(
+                    "UPDATE habit_keyword SET total_count = continue_count"
+                )
+            else:
+                connection.exec_driver_sql(
+                    "ALTER TABLE habit_keyword ADD COLUMN total_count INTEGER NOT NULL DEFAULT 0"
+                )
+    if "continue_count" in columns:
+        with engine.begin() as connection:
+            connection.exec_driver_sql("ALTER TABLE habit_keyword DROP COLUMN continue_count")
+    if "continued_at" in columns:
+        with engine.begin() as connection:
+            connection.exec_driver_sql("ALTER TABLE habit_keyword DROP COLUMN continued_at")
+    with engine.begin() as connection:
+        connection.exec_driver_sql(
+            "UPDATE habit_keyword SET total_count = 0 WHERE total_count IS NULL"
+        )
 
 
 password_hash = PasswordHash.recommended()
@@ -104,6 +129,10 @@ app.add_middleware(
 def on_startup():
     scheduler.add_job(
         apply_nikki_template_to_today_nikki,
+        create_template_batch_trigger()
+    )
+    scheduler.add_job(
+        count_habit_keyword_continuations,
         create_template_batch_trigger()
     )
 
@@ -405,8 +434,9 @@ def open_habit_collaborative(session, user_id):
 
 def persist_habit_collaborative(session, key, _row, doc, user_id):
     keywords = parse_habit_keywords(doc)
-    save_document(session, key, doc)
     replace_habit_keywords(session, user_id, keywords)
+    hydrate_habit_keyword_counts(session, user_id, doc)
+    save_document(session, key, doc)
 
 
 def parse_habit_keywords(doc):
@@ -434,20 +464,9 @@ def parse_habit_keywords(doc):
         if not isinstance(is_public, bool):
             raise HTTPException(400, "習慣キーワードの公開設定が不正です。")
 
-        continued_at_value = item.get("continuedAt", item.get("continued_at"))
-        continued_at = None
-        if continued_at_value is not None:
-            if not isinstance(continued_at_value, str):
-                raise HTTPException(400, "習慣キーワードの継続日時が不正です。")
-            try:
-                continued_at = datetime.datetime.fromisoformat(continued_at_value)
-            except ValueError as exc:
-                raise HTTPException(400, "習慣キーワードの継続日時が不正です。") from exc
-
         keywords.append({
             "keyword": keyword,
             "is_public": is_public,
-            "continued_at": continued_at,
         })
 
     return keywords
@@ -457,12 +476,87 @@ def replace_habit_keywords(session: Session, user_id: int, keywords):
     existing_keywords = session.exec(
         select(HabitKeyword).where(HabitKeyword.user_id == user_id)
     ).all()
+    existing_by_keyword = {}
     for habit_keyword in existing_keywords:
-        session.delete(habit_keyword)
-    session.flush()
+        existing_by_keyword.setdefault(habit_keyword.keyword, []).append(habit_keyword)
 
     for keyword in keywords:
-        session.add(HabitKeyword(user_id=user_id, **keyword))
+        matching_keywords = existing_by_keyword.get(keyword["keyword"], [])
+        if matching_keywords:
+            habit_keyword = matching_keywords.pop(0)
+            habit_keyword.is_public = keyword["is_public"]
+            session.add(habit_keyword)
+        else:
+            session.add(HabitKeyword(user_id=user_id, **keyword))
+
+    for remaining_keywords in existing_by_keyword.values():
+        for habit_keyword in remaining_keywords:
+            session.delete(habit_keyword)
+
+
+def hydrate_habit_keyword_counts(session: Session, user_id: int, doc):
+    try:
+        data = json.loads(str(doc["text"]) or "[]")
+    except json.JSONDecodeError:
+        return
+    if not isinstance(data, list):
+        return
+
+    counts = {
+        habit_keyword.keyword: habit_keyword.total_count
+        for habit_keyword in session.exec(
+            select(HabitKeyword).where(HabitKeyword.user_id == user_id)
+        )
+    }
+    changed = False
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+        keyword = item.get("keyword")
+        if not isinstance(keyword, str):
+            continue
+        total_count = counts.get(keyword.strip(), 0)
+        legacy_count = item.pop("continueCount", None)
+        if item.get("totalCount") != total_count or legacy_count is not None:
+            item["totalCount"] = total_count
+            changed = True
+
+    if changed:
+        replace_text(doc, json.dumps(data, ensure_ascii=False))
+
+
+def line_contains_habit_keyword(text: str, keyword: str) -> bool:
+    return any("✅" in line and keyword in line for line in text.splitlines())
+
+
+def count_habit_keyword_continuations():
+    with Session(engine) as session:
+        lock_writes(session)
+        today = datetime.datetime.now(jst).date()
+        diaries_by_user = {}
+        for nikki in session.exec(select(Nikki)):
+            diaries_by_user.setdefault(nikki.user_id, []).append(nikki)
+
+        for habit_keyword in session.exec(select(HabitKeyword)):
+            continued_dates = {
+                nikki.date
+                for nikki in diaries_by_user.get(habit_keyword.user_id, [])
+                if nikki.date <= today
+                if line_contains_habit_keyword(nikki.text, habit_keyword.keyword)
+            }
+            habit_keyword.total_count = len(continued_dates)
+            session.add(habit_keyword)
+
+        user_ids = {
+            habit_keyword.user_id
+            for habit_keyword in session.exec(select(HabitKeyword))
+        }
+        for user_id in user_ids:
+            key, _row, doc = open_habit_collaborative(session, user_id)
+            hydrate_habit_keyword_counts(session, user_id, doc)
+            save_document(session, key, doc)
+
+        session.commit()
 
 
 async def read_sync_payload(request: Request, user_id: int):

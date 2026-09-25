@@ -6,12 +6,14 @@ export type HabitKeyword = {
   id: number;
   isPublic: boolean;
   keyword: string;
+  totalCount: number;
 };
 
 const createKeyword = (id: number): HabitKeyword => ({
   id,
   isPublic: false,
   keyword: '',
+  totalCount: 0,
 });
 
 function parseHabitKeywords(text: string): HabitKeyword[] {
@@ -31,6 +33,11 @@ function parseHabitKeywords(text: string): HabitKeyword[] {
         id: typeof record.id === 'number' ? record.id : index + 1,
         isPublic: record.isPublic === true,
         keyword,
+        totalCount: typeof record.totalCount === 'number'
+          ? record.totalCount
+          : typeof record.continueCount === 'number'
+            ? record.continueCount
+            : 0,
       }];
     });
   } catch {
