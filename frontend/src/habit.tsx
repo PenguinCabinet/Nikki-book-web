@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import Button from 'react-bootstrap/Button';
 import Form from 'react-bootstrap/Form';
+import Modal from 'react-bootstrap/Modal';
 import Table from 'react-bootstrap/Table';
 
 import './habit.css';
@@ -20,6 +21,7 @@ const createKeyword = (id: number): HabitKeyword => ({
 function Habit() {
   const [keywords, setKeywords] = useState<HabitKeyword[]>([createKeyword(1)]);
   const [nextId, setNextId] = useState(2);
+  const [deleteTarget, setDeleteTarget] = useState<HabitKeyword | null>(null);
 
   const updateKeyword = (
     id: number,
@@ -41,6 +43,7 @@ function Habit() {
     setKeywords((currentKeywords) =>
       currentKeywords.filter((habitKeyword) => habitKeyword.id !== id),
     );
+    setDeleteTarget(null);
   };
 
   return (
@@ -98,7 +101,7 @@ function Habit() {
                   <Button
                     variant="link"
                     className="habit-settings__delete-button"
-                    onClick={() => deleteKeyword(habitKeyword.id)}
+                    onClick={() => setDeleteTarget(habitKeyword)}
                     aria-label="キーワードを削除する"
                   >
                     削除
@@ -119,6 +122,41 @@ function Habit() {
           +
         </Button>
       </div>
+
+      <Modal
+        show={deleteTarget !== null}
+        onHide={() => setDeleteTarget(null)}
+        centered
+        aria-labelledby="delete-habit-keyword-title"
+      >
+        <Modal.Header closeButton>
+          <Modal.Title id="delete-habit-keyword-title">
+            キーワードを削除しますか？
+          </Modal.Title>
+        </Modal.Header>
+        <Modal.Body>
+          {deleteTarget?.keyword ? (
+            <>「{deleteTarget.keyword}」を削除すると、元に戻せません。</>
+          ) : (
+            'このキーワードを削除すると、元に戻せません。'
+          )}
+        </Modal.Body>
+        <Modal.Footer>
+          <Button variant="secondary" onClick={() => setDeleteTarget(null)}>
+            キャンセル
+          </Button>
+          <Button
+            variant="danger"
+            onClick={() => {
+              if (deleteTarget !== null) {
+                deleteKeyword(deleteTarget.id);
+              }
+            }}
+          >
+            削除する
+          </Button>
+        </Modal.Footer>
+      </Modal>
     </section>
   );
 }
