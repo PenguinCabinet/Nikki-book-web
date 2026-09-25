@@ -1,0 +1,201 @@
+.habit-settings {
+  min-height: calc(100vh - 7rem);
+  padding: 1.5rem;
+}
+
+.habit-settings__header {
+  margin-bottom: 1.5rem;
+}
+
+.habit-settings__header h1 {
+  margin-bottom: 0.5rem;
+  font-size: 1.75rem;
+  font-weight: 600;
+}
+
+.habit-settings__header p {
+  margin-bottom: 0;
+  color: #6c757d;
+}
+
+.habit-settings__table-wrap {
+  overflow: hidden;
+  border: 1px solid #dee2e6;
+  border-radius: 0.5rem;
+  background-color: #fff;
+}
+
+.habit-settings__table {
+  min-width: 42rem;
+  margin-bottom: 0;
+  vertical-align: middle;
+}
+
+.habit-settings__table thead th {
+  padding: 0.85rem 1rem;
+  border-bottom-width: 1px;
+  background-color: #f8f9fa;
+  color: #495057;
+  font-size: 0.875rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.habit-settings__table tbody td {
+  padding: 0.85rem 1rem;
+}
+
+.habit-settings__table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.habit-settings__id-column,
+.habit-settings__id-cell {
+  width: 4rem;
+  color: #6c757d;
+  text-align: center;
+}
+
+.habit-settings__public-column,
+.habit-settings__public-cell {
+  width: 5rem;
+  text-align: center;
+}
+
+.habit-settings__public-cell .form-check {
+  display: flex;
+  justify-content: center;
+  margin: 0;
+}
+
+.habit-settings__public-cell .form-check-input {
+  float: none;
+  margin: 0;
+  cursor: pointer;
+}
+
+.habit-settings__continued-column,
+.habit-settings__continued-cell {
+  width: 10rem;
+  white-space: nowrap;
+}
+
+.habit-settings__continue-count {
+  color: #6c757d;
+  font-size: 0.9rem;
+}
+
+.habit-settings__delete-column,
+.habit-settings__delete-cell {
+  width: 5rem;
+  text-align: right;
+}
+
+.habit-settings__delete-button {
+  padding: 0;
+  color: #dc3545;
+  text-decoration: none;
+}
+
+.habit-settings__delete-button:hover,
+.habit-settings__delete-button:focus {
+  color: #b02a37;
+  text-decoration: underline;
+}
+
+.habit-settings__empty {
+  margin: 0;
+  padding: 2rem 1rem;
+  color: #6c757d;
+  text-align: center;
+}
+
+.habit-settings__actions {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 1.5rem;
+}
+
+@media (max-width: 576px) {
+  .habit-settings {
+    padding: 1rem;
+  }
+
+  .habit-settings__header h1 {
+    font-size: 1.5rem;
+  }
+
+  .habit-settings__table-wrap {
+    overflow: visible;
+    border: 0;
+    background-color: transparent;
+  }
+
+  .habit-settings__table-wrap .table-responsive {
+    overflow-x: visible;
+  }
+
+  .habit-settings__table {
+    display: block;
+    min-width: 0;
+    width: 100%;
+  }
+
+  .habit-settings__table thead {
+    display: none;
+  }
+
+  .habit-settings__table tbody,
+  .habit-settings__table tr {
+    display: block;
+  }
+
+  .habit-settings__table tr {
+    margin-bottom: 0.75rem;
+    padding: 0.75rem 1rem;
+    border: 1px solid #dee2e6;
+    border-radius: 0.5rem;
+    background-color: #fff;
+  }
+
+  .habit-settings__table tbody td,
+  .habit-settings__id-column,
+  .habit-settings__id-cell,
+  .habit-settings__public-column,
+  .habit-settings__public-cell,
+  .habit-settings__continued-column,
+  .habit-settings__continued-cell,
+  .habit-settings__delete-column,
+  .habit-settings__delete-cell {
+    display: grid;
+    grid-template-columns: 6.5rem minmax(0, 1fr);
+    align-items: center;
+    width: 100%;
+    min-width: 0;
+    padding: 0.5rem 0;
+    text-align: left;
+  }
+
+  .habit-settings__table tbody td::before {
+    content: attr(data-label);
+    color: #495057;
+    font-size: 0.875rem;
+    font-weight: 600;
+  }
+
+  .habit-settings__public-cell .form-check {
+    justify-content: flex-start;
+  }
+
+  .habit-settings__continued-cell {
+    white-space: normal;
+  }
+
+  .habit-settings__delete-cell {
+    justify-items: start;
+  }
+
+  .habit-settings__table tbody tr:last-child td {
+    border-bottom: 0;
+  }
+}

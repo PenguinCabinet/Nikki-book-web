@@ -1,6 +1,7 @@
 import asyncio
 import datetime
 import io
+import json
 import os
 import tempfile
 import unittest
@@ -13,8 +14,8 @@ from concurrent.futures import ThreadPoolExecutor
 
 os.environ.setdefault("NIKKI_BOOK_SECRET_KEY", "test-only")
 from fastapi.testclient import TestClient
-from sqlmodel import Session, SQLModel, create_engine
-from pycrdt import Doc, Text
+from sqlmodel import Session, SQLModel, create_engine, select
+from pycrdt import Doc, Map, Text
 import main
 from crdt import replace_text
 
@@ -108,6 +109,86 @@ class SyncTests(unittest.TestCase):
         asyncio.run(main.apply_nikki_template_to_today_nikki())
         today = datetime.datetime.now(main.jst).date().isoformat()
         self.assertIn("・買い物😀", str(self.sync(path=f'/nikki/{today}/sync')['text']))
+
+    def test_habit_sync_materializes_keywords(self):
+        habit = Doc({"habits": Map(), "habitMetadata": Map()})
+        habit["habits"]["reading"] = Map({"isPublic": True, "keyword": "読書"})
+        habit["habits"]["exercise"] = Map({"isPublic": False, "keyword": "運動"})
+
+        response = self.client.post(
+            "/habit/v2/sync",
+            content=habit.get_update(),
+            headers={"X-Sync-User": "1"},
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        synchronized = Doc({"habits": Map(), "habitMetadata": Map()})
+        synchronized.apply_update(response.content)
+        self.assertEqual(
+            [item["totalCount"] for item in synchronized["habitMetadata"].values()],
+            [0, 0],
+        )
+
+        with Session(main.engine) as session:
+            keywords = session.exec(
+                select(main.HabitKeyword).where(main.HabitKeyword.user_id == 1)
+            ).all()
+
+        self.assertEqual(
+            {
+                synchronized["habits"][sync_id]["keyword"]: item["habitKeywordId"]
+                for sync_id, item in synchronized["habitMetadata"].items()
+            },
+            {keyword.keyword: keyword.id for keyword in keywords},
+        )
+        self.assertEqual(
+            {keyword.keyword: keyword.is_public for keyword in keywords},
+            {"読書": True, "運動": False},
+        )
+
+        ids = {keyword.keyword: keyword.id for keyword in keywords}
+        habit.apply_update(response.content)
+        habit["habits"]["reading"]["keyword"] = "読書習慣"
+        response = self.client.post(
+            "/habit/v2/sync",
+            content=habit.get_update(),
+            headers={"X-Sync-User": "1"},
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+
+        with Session(main.engine) as session:
+            keywords = session.exec(
+                select(main.HabitKeyword).where(main.HabitKeyword.user_id == 1)
+            ).all()
+
+        self.assertEqual(
+            {keyword.keyword: keyword.id for keyword in keywords},
+            {"読書習慣": ids["読書"], "運動": ids["運動"]},
+        )
+
+    def test_habit_keyword_count_uses_matching_lines_and_distinct_dates(self):
+        with Session(main.engine) as session:
+            session.add_all([
+                main.HabitKeyword(user_id=1, keyword="読書"),
+                main.HabitKeyword(user_id=1, keyword="運動"),
+                main.Nikki(user_id=1, date=datetime.date(2026, 9, 1), text="✅ 読書"),
+                main.Nikki(user_id=1, date=datetime.date(2026, 9, 2), text="✅ 運動\n読書"),
+                main.Nikki(user_id=1, date=datetime.date(2026, 9, 3), text="読書\n✅ 運動"),
+                main.Nikki(user_id=1, date=datetime.date(2026, 9, 4), text="✅ 読書"),
+                main.Nikki(user_id=1, date=datetime.date(2026, 9, 4), text="✅ 読書"),
+            ])
+            session.commit()
+
+        main.count_habit_keyword_continuations()
+
+        with Session(main.engine) as session:
+            keywords = session.exec(
+                select(main.HabitKeyword).where(main.HabitKeyword.user_id == 1)
+            ).all()
+
+        self.assertEqual(
+            {keyword.keyword: keyword.total_count for keyword in keywords},
+            {"読書": 2, "運動": 2},
+        )
 
     def test_zip_updates_existing_crdt(self):
         stale = self.sync()
