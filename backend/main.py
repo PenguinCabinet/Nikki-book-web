@@ -1,5 +1,6 @@
 from typing import Annotated
 import datetime
+import json
 import secrets
 import io
 import zipfile
@@ -382,10 +383,12 @@ def open_collaborative(session, user_id, kind, date=None):
         row = session.exec(select(Nikki).where(Nikki.user_id == user_id, Nikki.date == date)).first()
         row = row if row is not None else Nikki(user_id=user_id, date=date)
         key = f"{user_id}:nikki:{date.isoformat()}"
-    else:
+    elif kind == "template":
         row = session.exec(select(Nikki_template).where(Nikki_template.user_id == user_id)).first()
         row = row if row is not None else Nikki_template(user_id=user_id)
         key = f"{user_id}:template"
+    else:
+        raise ValueError(f"Unknown collaborative document kind: {kind}")
     return key, row, load_document(session, key, row.text)
 
 
@@ -395,28 +398,117 @@ def persist_collaborative(session, key, row, doc):
     session.add(row)
 
 
-async def sync_document(request, user_id, kind, date=None):
+def open_habit_collaborative(session, user_id):
+    key = f"{user_id}:habit"
+    return key, load_document(session, key, "")
+
+
+def persist_habit_collaborative(session, key, doc, user_id, keywords):
+    save_document(session, key, doc)
+    replace_habit_keywords(session, user_id, keywords)
+
+
+def parse_habit_keywords(doc):
+    try:
+        data = json.loads(str(doc["text"]) or "[]")
+    except json.JSONDecodeError as exc:
+        raise HTTPException(400, "習慣キーワードのデータ形式が不正です。") from exc
+
+    if not isinstance(data, list):
+        raise HTTPException(400, "習慣キーワードのデータ形式が不正です。")
+
+    keywords = []
+    for item in data:
+        if not isinstance(item, dict):
+            raise HTTPException(400, "習慣キーワードのデータ形式が不正です。")
+
+        keyword = item.get("keyword")
+        if not isinstance(keyword, str):
+            raise HTTPException(400, "習慣キーワードのデータ形式が不正です。")
+        keyword = keyword.strip()
+        if not keyword:
+            continue
+
+        is_public = item.get("isPublic", item.get("is_public", False))
+        if not isinstance(is_public, bool):
+            raise HTTPException(400, "習慣キーワードの公開設定が不正です。")
+
+        continued_at_value = item.get("continuedAt", item.get("continued_at"))
+        continued_at = None
+        if continued_at_value is not None:
+            if not isinstance(continued_at_value, str):
+                raise HTTPException(400, "習慣キーワードの継続日時が不正です。")
+            try:
+                continued_at = datetime.datetime.fromisoformat(continued_at_value)
+            except ValueError as exc:
+                raise HTTPException(400, "習慣キーワードの継続日時が不正です。") from exc
+
+        keywords.append({
+            "keyword": keyword,
+            "is_public": is_public,
+            "continued_at": continued_at,
+        })
+
+    return keywords
+
+
+def replace_habit_keywords(session: Session, user_id: int, keywords):
+    existing_keywords = session.exec(
+        select(HabitKeyword).where(HabitKeyword.user_id == user_id)
+    ).all()
+    for habit_keyword in existing_keywords:
+        session.delete(habit_keyword)
+    session.flush()
+
+    for keyword in keywords:
+        session.add(HabitKeyword(user_id=user_id, **keyword))
+
+
+async def read_sync_payload(request: Request, user_id: int):
     if request.headers.get("X-Sync-User") != str(user_id):
         raise HTTPException(403, "The signed-in account changed. Please reload.")
-    # Limit input before parsing it as an untrusted CRDT update.
+
     payload = bytearray()
     async for chunk in request.stream():
         payload.extend(chunk)
         if len(payload) > 8 * 1024 * 1024:
             raise HTTPException(413, "Document update too large")
+    return bytes(payload)
+
+
+def apply_sync_payload(doc, payload):
+    if not payload:
+        return
+    try:
+        doc.apply_update(payload)
+    except BaseException as exc:
+        # The Rust decoder may raise a PanicException for malformed input.
+        if isinstance(exc, (KeyboardInterrupt, SystemExit)):
+            raise
+        raise HTTPException(400, "Invalid CRDT update") from exc
+
+
+async def sync_document(request, user_id, kind, date=None):
+    payload = await read_sync_payload(request, user_id)
     with Session(engine) as write_session:
         # SQLite serializes read/merge/write across processes, not just coroutines.
         lock_writes(write_session)
         key, row, doc = open_collaborative(write_session, user_id, kind, date)
-        if payload:
-            try:
-                doc.apply_update(bytes(payload))
-            except BaseException as exc:
-                # The Rust decoder may raise a PanicException for malformed input.
-                if isinstance(exc, (KeyboardInterrupt, SystemExit)):
-                    raise
-                raise HTTPException(400, "Invalid CRDT update") from exc
+        apply_sync_payload(doc, payload)
         persist_collaborative(write_session, key, row, doc)
+        update = doc.get_update()
+        write_session.commit()
+    return Response(content=update, media_type="application/octet-stream", headers={"Cache-Control": "no-store"})
+
+
+async def sync_habit_document(request, user_id):
+    payload = await read_sync_payload(request, user_id)
+    with Session(engine) as write_session:
+        lock_writes(write_session)
+        key, doc = open_habit_collaborative(write_session, user_id)
+        apply_sync_payload(doc, payload)
+        keywords = parse_habit_keywords(doc)
+        persist_habit_collaborative(write_session, key, doc, user_id, keywords)
         update = doc.get_update()
         write_session.commit()
     return Response(content=update, media_type="application/octet-stream", headers={"Cache-Control": "no-store"})
@@ -434,3 +526,8 @@ async def sync_nikki(request: Request, date_str: str, current_user: Annotated[Us
 @app.post("/template/sync")
 async def sync_template(request: Request, current_user: Annotated[User, Depends(get_current_active_user)]):
     return await sync_document(request, current_user.id, "template")
+
+
+@app.post("/habit/sync")
+async def sync_habit(request: Request, current_user: Annotated[User, Depends(get_current_active_user)]):
+    return await sync_habit_document(request, current_user.id)

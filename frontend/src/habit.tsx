@@ -4,47 +4,21 @@ import Form from 'react-bootstrap/Form';
 import Modal from 'react-bootstrap/Modal';
 import Table from 'react-bootstrap/Table';
 
+import {
+  type HabitKeyword,
+  useCollaborativeHabitKeywords,
+} from './common/useCollaborativeHabitKeywords';
 import './habit.css';
 
-type HabitKeyword = {
-  id: number;
-  isPublic: boolean;
-  keyword: string;
-};
-
-const createKeyword = (id: number): HabitKeyword => ({
-  id,
-  isPublic: false,
-  keyword: '',
-});
-
 function Habit() {
-  const [keywords, setKeywords] = useState<HabitKeyword[]>([createKeyword(1)]);
-  const [nextId, setNextId] = useState(2);
+  const {
+    keywords,
+    loading,
+    updateKeyword,
+    addKeyword,
+    deleteKeyword,
+  } = useCollaborativeHabitKeywords();
   const [deleteTarget, setDeleteTarget] = useState<HabitKeyword | null>(null);
-
-  const updateKeyword = (
-    id: number,
-    update: Partial<Omit<HabitKeyword, 'id'>>,
-  ) => {
-    setKeywords((currentKeywords) =>
-      currentKeywords.map((habitKeyword) =>
-        habitKeyword.id === id ? { ...habitKeyword, ...update } : habitKeyword,
-      ),
-    );
-  };
-
-  const addKeyword = () => {
-    setKeywords((currentKeywords) => [...currentKeywords, createKeyword(nextId)]);
-    setNextId((currentId) => currentId + 1);
-  };
-
-  const deleteKeyword = (id: number) => {
-    setKeywords((currentKeywords) =>
-      currentKeywords.filter((habitKeyword) => habitKeyword.id !== id),
-    );
-    setDeleteTarget(null);
-  };
 
   return (
     <section className="habit-settings" aria-labelledby="habit-settings-title">
@@ -73,6 +47,7 @@ function Habit() {
                     type="checkbox"
                     id={`habit-public-${habitKeyword.id}`}
                     checked={habitKeyword.isPublic}
+                    disabled={loading}
                     onChange={(event) =>
                       updateKeyword(habitKeyword.id, {
                         isPublic: event.target.checked,
@@ -88,6 +63,7 @@ function Habit() {
                   <Form.Control
                     type="text"
                     value={habitKeyword.keyword}
+                    disabled={loading}
                     onChange={(event) =>
                       updateKeyword(habitKeyword.id, {
                         keyword: event.target.value,
@@ -101,6 +77,7 @@ function Habit() {
                   <Button
                     variant="link"
                     className="habit-settings__delete-button"
+                    disabled={loading}
                     onClick={() => setDeleteTarget(habitKeyword)}
                     aria-label="キーワードを削除する"
                   >
@@ -118,7 +95,7 @@ function Habit() {
       </div>
 
       <div className="habit-settings__actions">
-        <Button variant="primary" onClick={addKeyword}>
+        <Button variant="primary" onClick={addKeyword} disabled={loading}>
           +
         </Button>
       </div>
@@ -150,6 +127,7 @@ function Habit() {
             onClick={() => {
               if (deleteTarget !== null) {
                 deleteKeyword(deleteTarget.id);
+                setDeleteTarget(null);
               }
             }}
           >

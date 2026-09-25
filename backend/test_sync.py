@@ -1,6 +1,7 @@
 import asyncio
 import datetime
 import io
+import json
 import os
 import tempfile
 import unittest
@@ -13,7 +14,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 os.environ.setdefault("NIKKI_BOOK_SECRET_KEY", "test-only")
 from fastapi.testclient import TestClient
-from sqlmodel import Session, SQLModel, create_engine
+from sqlmodel import Session, SQLModel, create_engine, select
 from pycrdt import Doc, Text
 import main
 from crdt import replace_text
@@ -108,6 +109,30 @@ class SyncTests(unittest.TestCase):
         asyncio.run(main.apply_nikki_template_to_today_nikki())
         today = datetime.datetime.now(main.jst).date().isoformat()
         self.assertIn("・買い物😀", str(self.sync(path=f'/nikki/{today}/sync')['text']))
+
+    def test_habit_sync_materializes_keywords(self):
+        habit = Doc({"text": Text()})
+        habit["text"].insert(0, json.dumps([
+            {"id": 1, "isPublic": True, "keyword": "読書"},
+            {"id": 2, "isPublic": False, "keyword": "運動"},
+        ], ensure_ascii=False))
+
+        response = self.client.post(
+            "/habit/sync",
+            content=habit.get_update(),
+            headers={"X-Sync-User": "1"},
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+
+        with Session(main.engine) as session:
+            keywords = session.exec(
+                select(main.HabitKeyword).where(main.HabitKeyword.user_id == 1)
+            ).all()
+
+        self.assertEqual(
+            [(keyword.keyword, keyword.is_public) for keyword in keywords],
+            [("読書", True), ("運動", False)],
+        )
 
     def test_zip_updates_existing_crdt(self):
         stale = self.sync()
