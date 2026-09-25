@@ -19,6 +19,9 @@ function App() {
       <Tab eventKey="nikki" title="日記">
         <Nikki/>
       </Tab>
+      <Tab eventKey="habit" title="習慣">
+        <p>習慣</p>
+      </Tab>
       <Tab eventKey="template" title="テンプレ">
         <TemplateEditor/>
       </Tab>
