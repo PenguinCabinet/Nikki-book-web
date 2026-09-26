@@ -1,7 +1,9 @@
 
 import unittest
 import datetime
-from main import create_template_batch_trigger, jst, select_today_nikki_from_template
+from main import create_template_batch_trigger
+from app.core.settings import jst
+from app.nikki.routes import select_today_nikki_from_template
 
 
 class TestMain(unittest.TestCase):

@@ -12,7 +12,9 @@ from fastapi.testclient import TestClient
 from pycrdt import Doc, Map
 from sqlmodel import Session, SQLModel, create_engine, select
 import main
-from crdt import CollaborativeDocument
+from app.habits import routes as habits
+from app.storage import database, models
+from app.storage.crdt import CollaborativeDocument
 
 
 def habit_doc():
@@ -22,21 +24,21 @@ def habit_doc():
 class HabitSyncTests(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
-        self.previous_engine = main.engine
-        main.engine = create_engine(f"sqlite:///{self.directory.name}/test.db", connect_args={"check_same_thread": False})
-        SQLModel.metadata.create_all(main.engine)
-        with Session(main.engine) as session:
+        self.previous_engine = database.engine
+        database.engine = create_engine(f"sqlite:///{self.directory.name}/test.db", connect_args={"check_same_thread": False})
+        SQLModel.metadata.create_all(database.engine)
+        with Session(database.engine) as session:
             for user_id in (1, 2):
-                session.add(main.User(id=user_id, username=str(user_id), hashed_password="unused"))
-                session.add(main.UserSession(session_id=f"test-{user_id}", user_id=user_id))
+                session.add(models.User(id=user_id, username=str(user_id), hashed_password="unused"))
+                session.add(models.UserSession(session_id=f"test-{user_id}", user_id=user_id))
             session.commit()
         self.client = TestClient(main.app)
         self.client.cookies.set("session_id", "test-1")
 
     def tearDown(self):
         self.client.close()
-        main.engine.dispose()
-        main.engine = self.previous_engine
+        database.engine.dispose()
+        database.engine = self.previous_engine
         self.directory.cleanup()
 
     def post(self, doc):
@@ -53,8 +55,8 @@ class HabitSyncTests(unittest.TestCase):
         doc["habits"][key] = Map({"keyword": keyword, "isPublic": False, "order": 1})
 
     def rows(self):
-        with Session(main.engine) as session:
-            return session.exec(select(main.HabitKeyword).order_by(main.HabitKeyword.id)).all()
+        with Session(database.engine) as session:
+            return session.exec(select(models.HabitKeyword).order_by(models.HabitKeyword.id)).all()
 
     def test_edit_before_create_response_and_retry_keep_one_id(self):
         doc = self.sync()
@@ -88,7 +90,7 @@ class HabitSyncTests(unittest.TestCase):
         self.sync(doc)
         doc["habits"]["a"]["keyword"] = ""
         self.sync(doc)
-        main.count_habit_keyword_continuations()
+        habits.count_habit_keyword_continuations()
         doc["habits"]["a"]["keyword"] = "運動"
         self.sync(doc)
         self.assertEqual(
@@ -98,21 +100,21 @@ class HabitSyncTests(unittest.TestCase):
         self.assertEqual(set(doc["habits"]), {"a", "b"})
 
     def test_public_total_count_is_anonymous_and_scoped_to_user_and_visibility(self):
-        with Session(main.engine) as session:
-            session.get(main.User, 1).username = "alice"
-            session.get(main.User, 2).username = "bob"
+        with Session(database.engine) as session:
+            session.get(models.User, 1).username = "alice"
+            session.get(models.User, 2).username = "bob"
             session.commit()
 
         habit = self.sync()
         self.add(habit, "reading", "読書")
         self.sync(habit)
         keyword_id = self.rows()[0].id
-        with Session(main.engine) as session:
-            keyword = session.get(main.HabitKeyword, keyword_id)
+        with Session(database.engine) as session:
+            keyword = session.get(models.HabitKeyword, keyword_id)
             keyword.total_count = 7
             session.add_all([
                 keyword,
-                main.HabitKeyword(user_id=2, keyword="運動", is_public=True, total_count=12),
+                models.HabitKeyword(user_id=2, keyword="運動", is_public=True, total_count=12),
             ])
             session.commit()
 
@@ -136,8 +138,8 @@ class HabitSyncTests(unittest.TestCase):
             self.client.get(f"/bob/habit/{other_keyword.id}").json(),
             {"total_count": 12},
         )
-        with Session(main.engine) as session:
-            keyword = session.get(main.HabitKeyword, keyword_id)
+        with Session(database.engine) as session:
+            keyword = session.get(models.HabitKeyword, keyword_id)
             keyword.total_count = 0
             session.add(keyword)
             session.commit()
@@ -195,20 +197,20 @@ class HabitSyncTests(unittest.TestCase):
         doc = self.sync()
         self.add(doc, "a", "読書")
         self.sync(doc)
-        with Session(main.engine) as session:
-            session.add(main.Nikki(user_id=1, date=datetime.date(2020, 1, 1), text="✅ 読書\n✅ 読書"))
+        with Session(database.engine) as session:
+            session.add(models.Nikki(user_id=1, date=datetime.date(2020, 1, 1), text="✅ 読書\n✅ 読書"))
             session.commit()
-        main.count_habit_keyword_continuations()
+        habits.count_habit_keyword_continuations()
         doc["habits"]["a"]["isPublic"] = True
         self.sync(doc)
         self.assertEqual(doc["habitMetadata"]["a"]["totalCount"], 1)
         self.assertTrue(doc["habits"]["a"]["isPublic"])
 
     def test_migration_preserves_database_ids_counts_and_old_document(self):
-        with Session(main.engine) as session:
+        with Session(database.engine) as session:
             session.add_all([
-                main.HabitKeyword(id=41, user_id=1, keyword="読書", total_count=4),
-                main.HabitKeyword(id=42, user_id=1, keyword="読書", total_count=4),
+                models.HabitKeyword(id=41, user_id=1, keyword="読書", total_count=4),
+                models.HabitKeyword(id=42, user_id=1, keyword="読書", total_count=4),
                 CollaborativeDocument(key="1:habit", state=b"legacy-state-kept"),
             ])
             session.commit()
@@ -217,17 +219,17 @@ class HabitSyncTests(unittest.TestCase):
         self.assertEqual([item["totalCount"] for item in doc["habitMetadata"].values()], [4, 4])
         self.sync(doc)
         self.assertEqual([row.id for row in self.rows()], [41, 42])
-        with Session(main.engine) as session:
+        with Session(database.engine) as session:
             self.assertEqual(session.get(CollaborativeDocument, "1:habit").state, b"legacy-state-kept")
         self.assertEqual(self.client.post("/habit/sync").status_code, 409)
 
     def test_schema_upgrade_is_repeatable_and_preserves_rows(self):
-        with main.engine.begin() as connection:
+        with database.engine.begin() as connection:
             connection.exec_driver_sql("DROP INDEX ix_habit_keyword_user_sync_id")
             connection.exec_driver_sql("ALTER TABLE habit_keyword DROP COLUMN sync_id")
             connection.exec_driver_sql("INSERT INTO habit_keyword (id, user_id, is_public, keyword, total_count) VALUES (9, 1, 0, 'test', 7)")
-        main.create_db_and_tables()
-        main.create_db_and_tables()
+        database.create_db_and_tables()
+        database.create_db_and_tables()
         self.assertEqual([(row.id, row.total_count) for row in self.rows()], [(9, 7)])
         doc = self.sync()
         self.assertEqual(next(iter(doc["habitMetadata"].values()))["habitKeywordId"], 9)
@@ -236,8 +238,8 @@ class HabitSyncTests(unittest.TestCase):
         doc = self.sync()
         self.add(doc, "a", "読書")
         self.sync(doc)
-        with Session(main.engine) as session:
-            session.add(main.HabitKeyword(id=999, user_id=2, sync_id="a", keyword="private", total_count=99))
+        with Session(database.engine) as session:
+            session.add(models.HabitKeyword(id=999, user_id=2, sync_id="a", keyword="private", total_count=99))
             session.commit()
         doc["habitMetadata"]["a"] = {"habitKeywordId": 999, "totalCount": 999}
         self.sync(doc)
@@ -254,7 +256,7 @@ class HabitSyncTests(unittest.TestCase):
         self.add(doc, "a", "読書")
         self.sync(doc)
         process = subprocess.run(
-            ["node", str(Path(__file__).resolve().parent.parent / "frontend/tests/yjs-peer.mjs")],
+            ["node", str(Path(__file__).resolve().parent.parent.parent / "frontend/tests/yjs-peer.mjs")],
             input=json.dumps({"update": base64.b64encode(doc.get_update()).decode(), "habitKey": "a", "keyword": "読書😀"}),
             capture_output=True, text=True, encoding="utf-8", check=True,
         )

@@ -17,20 +17,24 @@ from fastapi.testclient import TestClient
 from sqlmodel import Session, SQLModel, create_engine, select
 from pycrdt import Doc, Map, Text
 import main
-from crdt import replace_text
+from app.core.settings import jst
+from app.nikki import routes as nikki
+from app.habits import routes as habits
+from app.storage import database, models
+from app.storage.crdt import replace_text
 
 
 class SyncTests(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
-        self.previous_engine = main.engine
-        main.engine = create_engine(f"sqlite:///{self.directory.name}/test.db", connect_args={"check_same_thread": False})
-        SQLModel.metadata.create_all(main.engine)
-        with Session(main.engine) as session:
+        self.previous_engine = database.engine
+        database.engine = create_engine(f"sqlite:///{self.directory.name}/test.db", connect_args={"check_same_thread": False})
+        SQLModel.metadata.create_all(database.engine)
+        with Session(database.engine) as session:
             for uid in (1, 2):
-                session.add(main.User(id=uid, username=str(uid), hashed_password="unused"))
-                session.add(main.UserSession(session_id=f"test-{uid}", user_id=uid))
-            session.add(main.Nikki(user_id=1, date=datetime.date(2026, 9, 8), text="日記😀\n"))
+                session.add(models.User(id=uid, username=str(uid), hashed_password="unused"))
+                session.add(models.UserSession(session_id=f"test-{uid}", user_id=uid))
+            session.add(models.Nikki(user_id=1, date=datetime.date(2026, 9, 8), text="日記😀\n"))
             session.commit()
         self.client = TestClient(main.app)
         self.client.cookies.set("session_id", "test-1")
@@ -38,8 +42,8 @@ class SyncTests(unittest.TestCase):
 
     def tearDown(self):
         self.client.close()
-        main.engine.dispose()
-        main.engine = self.previous_engine
+        database.engine.dispose()
+        database.engine = self.previous_engine
         self.directory.cleanup()
 
     def sync(self, doc=None, path=None, user=1):
@@ -54,7 +58,7 @@ class SyncTests(unittest.TestCase):
         replace_text(phone, "スマホ\n日記😀\n")
         replace_text(pc, "日記😀\nPC\n")
         self.sync(phone)
-        main.engine.dispose()  # No in-memory document is needed to recover.
+        database.engine.dispose()  # No in-memory document is needed to recover.
         self.sync(pc)
         self.sync(phone)
         self.assertEqual(str(phone["text"]), "スマホ\n日記😀\nPC\n")
@@ -86,7 +90,7 @@ class SyncTests(unittest.TestCase):
         doc = self.sync()
         def javascript_peer(append=""):
             process = subprocess.run(
-                ["node", str(Path(__file__).resolve().parent.parent / "frontend/tests/yjs-peer.mjs")],
+                ["node", str(Path(__file__).resolve().parent.parent.parent / "frontend/tests/yjs-peer.mjs")],
                 input=json.dumps({"update": base64.b64encode(doc.get_update()).decode(), "append": append}),
                 capture_output=True, text=True, encoding="utf-8", check=True,
             )
@@ -106,8 +110,8 @@ class SyncTests(unittest.TestCase):
         self.assertEqual(self.client.get('/template').json()['text'], "▶️買い物😀")
         self.assertEqual(self.client.put('/template', json={'text': 'old'}).status_code, 409)
         self.assertEqual(self.client.put('/nikki/2026-09-08', json={'text': 'old'}).status_code, 409)
-        asyncio.run(main.apply_nikki_template_to_today_nikki())
-        today = datetime.datetime.now(main.jst).date().isoformat()
+        asyncio.run(nikki.apply_nikki_template_to_today_nikki())
+        today = datetime.datetime.now(jst).date().isoformat()
         self.assertIn("・買い物😀", str(self.sync(path=f'/nikki/{today}/sync')['text']))
 
     def test_habit_sync_materializes_keywords(self):
@@ -128,9 +132,9 @@ class SyncTests(unittest.TestCase):
             [0, 0],
         )
 
-        with Session(main.engine) as session:
+        with Session(database.engine) as session:
             keywords = session.exec(
-                select(main.HabitKeyword).where(main.HabitKeyword.user_id == 1)
+                select(models.HabitKeyword).where(models.HabitKeyword.user_id == 1)
             ).all()
 
         self.assertEqual(
@@ -155,9 +159,9 @@ class SyncTests(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 200, response.text)
 
-        with Session(main.engine) as session:
+        with Session(database.engine) as session:
             keywords = session.exec(
-                select(main.HabitKeyword).where(main.HabitKeyword.user_id == 1)
+                select(models.HabitKeyword).where(models.HabitKeyword.user_id == 1)
             ).all()
 
         self.assertEqual(
@@ -166,23 +170,23 @@ class SyncTests(unittest.TestCase):
         )
 
     def test_habit_keyword_count_uses_matching_lines_and_distinct_dates(self):
-        with Session(main.engine) as session:
+        with Session(database.engine) as session:
             session.add_all([
-                main.HabitKeyword(user_id=1, keyword="読書"),
-                main.HabitKeyword(user_id=1, keyword="運動"),
-                main.Nikki(user_id=1, date=datetime.date(2026, 9, 1), text="✅ 読書"),
-                main.Nikki(user_id=1, date=datetime.date(2026, 9, 2), text="✅ 運動\n読書"),
-                main.Nikki(user_id=1, date=datetime.date(2026, 9, 3), text="読書\n✅ 運動"),
-                main.Nikki(user_id=1, date=datetime.date(2026, 9, 4), text="✅ 読書"),
-                main.Nikki(user_id=1, date=datetime.date(2026, 9, 4), text="✅ 読書"),
+                models.HabitKeyword(user_id=1, keyword="読書"),
+                models.HabitKeyword(user_id=1, keyword="運動"),
+                models.Nikki(user_id=1, date=datetime.date(2026, 9, 1), text="✅ 読書"),
+                models.Nikki(user_id=1, date=datetime.date(2026, 9, 2), text="✅ 運動\n読書"),
+                models.Nikki(user_id=1, date=datetime.date(2026, 9, 3), text="読書\n✅ 運動"),
+                models.Nikki(user_id=1, date=datetime.date(2026, 9, 4), text="✅ 読書"),
+                models.Nikki(user_id=1, date=datetime.date(2026, 9, 4), text="✅ 読書"),
             ])
             session.commit()
 
-        main.count_habit_keyword_continuations()
+        habits.count_habit_keyword_continuations()
 
-        with Session(main.engine) as session:
+        with Session(database.engine) as session:
             keywords = session.exec(
-                select(main.HabitKeyword).where(main.HabitKeyword.user_id == 1)
+                select(models.HabitKeyword).where(models.HabitKeyword.user_id == 1)
             ).all()
 
         self.assertEqual(
@@ -195,7 +199,7 @@ class SyncTests(unittest.TestCase):
         buffer = io.BytesIO()
         with zipfile.ZipFile(buffer, 'w') as archive:
             archive.writestr('2026年09月08日.txt', '取り込み😀')
-        response = self.client.post('/nikki-zip', files={'file': ('diary.zip', buffer.getvalue(), 'application/zip')})
+        response = self.client.post('/nikki-zip', files={'file': ('nikki.zip', buffer.getvalue(), 'application/zip')})
         self.assertEqual(response.status_code, 200)
         self.assertEqual(str(self.sync(stale)['text']), '取り込み😀')
 
