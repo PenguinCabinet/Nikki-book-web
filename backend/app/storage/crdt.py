@@ -32,8 +32,8 @@ def save_document(session: Session, key: str, doc: Doc):
     session.add(stored)
 
 
-def replace_text(doc: Doc, value: str):
-    # Preserve the identities of unchanged characters (including emoji).
+def update_crdt_text_preserving_unchanged_chars(doc: Doc, value: str):
+    # 変更のない文字（絵文字を含む）の識別子を維持する。
     old = str(doc["text"])
     start = 0
     while start < min(len(old), len(value)) and old[start] == value[start]:
@@ -41,7 +41,7 @@ def replace_text(doc: Doc, value: str):
     end = 0
     while end < min(len(old), len(value)) - start and old[-1-end] == value[-1-end]:
         end += 1
-    # pycrdt text offsets use UTF-8 bytes.
+    # pycrdtのテキスト位置はUTF-8のバイト数で指定する。
     offset = len(old[:start].encode("utf-8"))
     stop = len(old[:len(old)-end].encode("utf-8"))
     with doc.transaction():

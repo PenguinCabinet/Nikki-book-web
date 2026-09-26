@@ -1,7 +1,9 @@
 
 import unittest
 import datetime
-from main import create_template_batch_trigger, jst, select_today_nikki_from_template
+from main import create_template_batch_trigger
+from app.core.settings import jst
+from app.nikki.routes import extract_template_lines_with_start_icon
 
 
 class TestMain(unittest.TestCase):
@@ -18,7 +20,7 @@ class TestMain(unittest.TestCase):
             next_run.astimezone(datetime.timezone.utc),
         )
 
-    def test_select_today_nikki_from_template(self):
+    def test_extract_template_lines_with_start_icon(self):
         testcases=[
             """
 ・AAAA
@@ -34,7 +36,7 @@ class TestMain(unittest.TestCase):
 ▶️EEEE"""
         ]
         for testcase,expected in zip(testcases,expected_results):
-            actual = select_today_nikki_from_template(testcase)
+            actual = extract_template_lines_with_start_icon(testcase)
             self.assertEqual(expected, actual)
 
 

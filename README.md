@@ -36,6 +36,8 @@ pip install -r requirements.txt
 fastapi dev
 ```
 
+バックエンドの実装は `backend/app/` に配置しています。`auth/` は認証、`nikki/` は日記とテンプレート、`habits/` は習慣、`sync/` は同期 API、`storage/` はモデルと DB・CRDT の保存処理、`core/` は共通設定です。`backend/main.py` はアプリの起動点です。テストは `backend/tests/`、補助スクリプトは `backend/tools/` にあります。
+
 ### Frontend
 ```
 cd frontend
