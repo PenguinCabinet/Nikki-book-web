@@ -44,7 +44,7 @@ def open_habit_collaborative(session, user_id):
 
 def persist_habit_collaborative(session, key, _row, doc, user_id):
     keywords = parse_habit_keywords(doc)
-    replace_habit_keywords(session, user_id, keywords)
+    sync_habit_keywords_to_database(session, user_id, keywords)
     session.flush()
     hydrate_habit_keyword_metadata(session, user_id, doc)
     save_document(session, key, doc)
@@ -72,7 +72,7 @@ def parse_habit_keywords(doc):
     return keywords
 
 
-def replace_habit_keywords(session: Session, user_id: int, keywords):
+def sync_habit_keywords_to_database(session: Session, user_id: int, keywords):
     existing_keywords = session.exec(
         select(HabitKeyword).where(HabitKeyword.user_id == user_id)
     ).all()
