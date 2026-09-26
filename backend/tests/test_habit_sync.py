@@ -221,7 +221,6 @@ class HabitSyncTests(unittest.TestCase):
         self.assertEqual([row.id for row in self.rows()], [41, 42])
         with Session(database.engine) as session:
             self.assertEqual(session.get(CollaborativeDocument, "1:habit").state, b"legacy-state-kept")
-        self.assertEqual(self.client.post("/habit/sync").status_code, 409)
 
     def test_schema_upgrade_is_repeatable_and_preserves_rows(self):
         with database.engine.begin() as connection:

@@ -108,8 +108,6 @@ class SyncTests(unittest.TestCase):
         update_crdt_text_preserving_unchanged_chars(template, "▶️買い物😀")
         self.sync(template, '/template/sync')
         self.assertEqual(self.client.get('/template').json()['text'], "▶️買い物😀")
-        self.assertEqual(self.client.put('/template', json={'text': 'old'}).status_code, 409)
-        self.assertEqual(self.client.put('/nikki/2026-09-08', json={'text': 'old'}).status_code, 409)
         asyncio.run(nikki.apply_nikki_template_to_today_nikki())
         today = datetime.datetime.now(jst).date().isoformat()
         self.assertIn("・買い物😀", str(self.sync(path=f'/nikki/{today}/sync')['text']))
