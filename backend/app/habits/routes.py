@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 from pycrdt import Doc, Map
 from sqlmodel import Session, select
 
-from app.auth.routes import get_current_active_user
+from app.auth.routes import get_current_user
 from app.core.settings import jst
 from app.storage import database
 from app.storage.crdt import CollaborativeDocument, lock_writes, save_document
@@ -16,15 +16,15 @@ from app.storage.models import HabitKeyword, Nikki, User
 router = APIRouter()
 
 
-def open_habit_collaborative(session, user_id):
+def load_or_migrate_habit_document(session, user_id):
     key = f"{user_id}:habit:v2"
     stored = session.get(CollaborativeDocument, key)
     doc = Doc({"habits": Map(), "habitMetadata": Map()})
     if stored is not None:
         doc.apply_update(stored.state)
     else:
-        # Migrate once from DB rows, preserving IDs even when keywords are duplicates.
-        # Keep the old JSON document intact; its broken merge history is not reused.
+        # 同じキーワードが複数あってもIDを維持し、DBの行から一度だけ移行する。
+        # 古いJSON文書は残し、壊れたマージ履歴は再利用しない。
         keywords = session.exec(
             select(HabitKeyword).where(HabitKeyword.user_id == user_id).order_by(HabitKeyword.id)
         ).all()
@@ -38,7 +38,7 @@ def open_habit_collaborative(session, user_id):
                     "isPublic": keyword.is_public,
                     "order": order,
                 })
-        hydrate_habit_keyword_metadata(session, user_id, doc)
+        refresh_habit_document_metadata_from_database(session, user_id, doc)
     return key, None, doc
 
 
@@ -46,7 +46,7 @@ def persist_habit_collaborative(session, key, _row, doc, user_id):
     keywords = parse_habit_keywords(doc)
     sync_habit_keywords_to_database(session, user_id, keywords)
     session.flush()
-    hydrate_habit_keyword_metadata(session, user_id, doc)
+    refresh_habit_document_metadata_from_database(session, user_id, doc)
     save_document(session, key, doc)
 
 
@@ -95,14 +95,14 @@ def sync_habit_keywords_to_database(session: Session, user_id: int, keywords):
             session.delete(habit_keyword)
 
 
-def hydrate_habit_keyword_metadata(session: Session, user_id: int, doc):
+def refresh_habit_document_metadata_from_database(session: Session, user_id: int, doc):
     habit_keywords = {
         habit_keyword.sync_id: habit_keyword
         for habit_keyword in session.exec(
             select(HabitKeyword).where(HabitKeyword.user_id == user_id)
         )
     }
-    # Server-owned values never rewrite editable fields or identify rows by keyword.
+    # サーバー管理値は編集可能な項目を書き換えず、行の照合にもキーワードを使わない。
     metadata = doc["habitMetadata"]
     with doc.transaction():
         for sync_id in doc["habits"]:
@@ -122,7 +122,7 @@ def line_contains_habit_keyword(text: str, keyword: str) -> bool:
     return bool(keyword) and any("✅" in line and keyword in line for line in text.splitlines())
 
 
-def count_habit_keyword_continuations():
+def recalculate_habit_keyword_total_counts():
     with Session(database.engine) as session:
         lock_writes(session)
         today = datetime.datetime.now(jst).date()
@@ -145,8 +145,8 @@ def count_habit_keyword_continuations():
             for habit_keyword in session.exec(select(HabitKeyword))
         }
         for user_id in user_ids:
-            key, _row, doc = open_habit_collaborative(session, user_id)
-            hydrate_habit_keyword_metadata(session, user_id, doc)
+            key, _row, doc = load_or_migrate_habit_document(session, user_id)
+            refresh_habit_document_metadata_from_database(session, user_id, doc)
             save_document(session, key, doc)
 
         session.commit()

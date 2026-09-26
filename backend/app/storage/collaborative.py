@@ -4,7 +4,7 @@ from app.storage.crdt import load_document, save_document
 from app.storage.models import Nikki, Nikki_template
 
 
-def open_collaborative(session, user_id, kind, date=None):
+def load_or_create_nikki_or_template_document(session, user_id, kind, date=None):
     if kind == "nikki":
         row = session.exec(select(Nikki).where(Nikki.user_id == user_id, Nikki.date == date)).first()
         row = row if row is not None else Nikki(user_id=user_id, date=date)
@@ -18,7 +18,7 @@ def open_collaborative(session, user_id, kind, date=None):
     return key, row, load_document(session, key, row.text)
 
 
-def persist_collaborative(session, key, row, doc, _user_id=None):
+def save_nikki_or_template_document_to_session(session, key, row, doc, _user_id=None):
     save_document(session, key, doc)
     row.text = str(doc["text"])
     session.add(row)

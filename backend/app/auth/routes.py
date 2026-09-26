@@ -22,10 +22,6 @@ def verify_password(plain_password, hashed_password):
     return password_hash.verify(plain_password, hashed_password)
 
 
-def get_password_hash(password):
-    return password_hash.hash(password)
-
-
 def get_user(session: SessionDep, username: str):
     user = session.exec(select(User).where(User.username == username)).all()
     if len(user)==1:
@@ -76,14 +72,8 @@ async def get_current_user(request: Request, session: SessionDep):
     return user
 
 
-async def get_current_active_user(
-    current_user: Annotated[User, Depends(get_current_user)],
-):
-    return current_user
-
-
 @router.post("/token")
-async def login_for_access_token(
+async def login_with_session_cookie(
     response: Response,
     session: SessionDep,
     form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
@@ -141,5 +131,5 @@ async def register(
             detail="",
         )
 
-    return await login_for_access_token(response, session, form_data)
+    return await login_with_session_cookie(response, session, form_data)
 

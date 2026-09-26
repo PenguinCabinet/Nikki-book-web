@@ -12,9 +12,9 @@ from app.nikki import routes as nikki
 from app.habits import routes as habits
 from app.sync import routes as sync
 from app.core.settings import jst
-from app.storage.database import create_db_and_tables
+from app.storage.database import create_and_migrate_database_schema
 from app.nikki.routes import apply_nikki_template_to_today_nikki
-from app.habits.routes import count_habit_keyword_continuations
+from app.habits.routes import recalculate_habit_keyword_total_counts
 
 load_dotenv()
 if os.getenv("NIKKI_BOOK_SECRET_KEY") is None:
@@ -49,9 +49,9 @@ app.include_router(habits.router)
 @app.on_event("startup")
 def on_startup():
     scheduler.add_job(apply_nikki_template_to_today_nikki, create_template_batch_trigger())
-    scheduler.add_job(count_habit_keyword_continuations, create_template_batch_trigger())
+    scheduler.add_job(recalculate_habit_keyword_total_counts, create_template_batch_trigger())
     scheduler.start()
-    create_db_and_tables()
+    create_and_migrate_database_schema()
 
 
 @app.on_event("shutdown")

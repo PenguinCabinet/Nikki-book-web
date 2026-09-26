@@ -21,7 +21,7 @@ from app.core.settings import jst
 from app.nikki import routes as nikki
 from app.habits import routes as habits
 from app.storage import database, models
-from app.storage.crdt import replace_text
+from app.storage.crdt import update_crdt_text_preserving_unchanged_chars
 
 
 class SyncTests(unittest.TestCase):
@@ -55,8 +55,8 @@ class SyncTests(unittest.TestCase):
 
     def test_stale_device_merges_and_retries_after_restart(self):
         phone, pc = self.sync(), self.sync()
-        replace_text(phone, "スマホ\n日記😀\n")
-        replace_text(pc, "日記😀\nPC\n")
+        update_crdt_text_preserving_unchanged_chars(phone, "スマホ\n日記😀\n")
+        update_crdt_text_preserving_unchanged_chars(pc, "日記😀\nPC\n")
         self.sync(phone)
         database.engine.dispose()  # No in-memory document is needed to recover.
         self.sync(pc)
@@ -68,22 +68,22 @@ class SyncTests(unittest.TestCase):
 
     def test_concurrent_transactions_keep_both_edits(self):
         a, b = self.sync(), self.sync()
-        replace_text(a, "A日記😀\n")
-        replace_text(b, "日記😀\nB")
+        update_crdt_text_preserving_unchanged_chars(a, "A日記😀\n")
+        update_crdt_text_preserving_unchanged_chars(b, "日記😀\nB")
         with ThreadPoolExecutor(2) as pool:
             list(pool.map(self.sync, [a, b]))
         self.assertEqual(str(self.sync()["text"]), "A日記😀\nB")
 
     def test_delete_does_not_resurrect_on_stale_sync(self):
         stale, current = self.sync(), self.sync()
-        replace_text(current, "")
+        update_crdt_text_preserving_unchanged_chars(current, "")
         self.sync(current)
         self.assertEqual(str(self.sync(stale)["text"]), "")
 
     def test_unicode_replace(self):
         doc = self.sync()
         for value in ["日記😃\n", "今日は晴れ☀️", "", "👨‍👩‍👧‍👦"]:
-            replace_text(doc, value)
+            update_crdt_text_preserving_unchanged_chars(doc, value)
             self.assertEqual(str(self.sync(doc)["text"]), value)
 
     def test_yjs_python_wire_compatibility(self):
@@ -99,13 +99,13 @@ class SyncTests(unittest.TestCase):
         doc.apply_update(base64.b64decode(js['update']))
         self.sync(doc)
         self.assertEqual(str(doc['text']), "日記😀\nスマホ😃")
-        replace_text(doc, "日記☀️\nスマホ😃")
+        update_crdt_text_preserving_unchanged_chars(doc, "日記☀️\nスマホ😃")
         self.sync(doc)
         self.assertEqual(javascript_peer()['text'], "日記☀️\nスマホ😃")
 
     def test_template_and_legacy_put(self):
         template = self.sync(path='/template/sync')
-        replace_text(template, "▶️買い物😀")
+        update_crdt_text_preserving_unchanged_chars(template, "▶️買い物😀")
         self.sync(template, '/template/sync')
         self.assertEqual(self.client.get('/template').json()['text'], "▶️買い物😀")
         self.assertEqual(self.client.put('/template', json={'text': 'old'}).status_code, 409)
@@ -182,7 +182,7 @@ class SyncTests(unittest.TestCase):
             ])
             session.commit()
 
-        habits.count_habit_keyword_continuations()
+        habits.recalculate_habit_keyword_total_counts()
 
         with Session(database.engine) as session:
             keywords = session.exec(

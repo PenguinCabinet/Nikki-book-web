@@ -4,7 +4,7 @@ from fastapi import Depends
 from sqlalchemy import inspect
 from sqlmodel import Session, SQLModel, create_engine
 
-from app.storage.crdt import CollaborativeDocument  # Register the CRDT table with SQLModel metadata.
+from app.storage.crdt import CollaborativeDocument  # CRDTのテーブルをSQLModelに登録する。
 from app.storage.models import HabitKeyword, Nikki, Nikki_template, User, UserSession
 
 sqlite_file_name = "database.db"
@@ -13,7 +13,7 @@ connect_args = {"check_same_thread": False}
 engine = create_engine(sqlite_url, echo=True, connect_args=connect_args)
 
 
-def create_db_and_tables():
+def create_and_migrate_database_schema():
     SQLModel.metadata.create_all(engine)
     columns = {column["name"] for column in inspect(engine).get_columns("habit_keyword")}
     with engine.begin() as connection:

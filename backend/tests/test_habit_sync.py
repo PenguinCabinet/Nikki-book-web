@@ -90,7 +90,7 @@ class HabitSyncTests(unittest.TestCase):
         self.sync(doc)
         doc["habits"]["a"]["keyword"] = ""
         self.sync(doc)
-        habits.count_habit_keyword_continuations()
+        habits.recalculate_habit_keyword_total_counts()
         doc["habits"]["a"]["keyword"] = "運動"
         self.sync(doc)
         self.assertEqual(
@@ -200,7 +200,7 @@ class HabitSyncTests(unittest.TestCase):
         with Session(database.engine) as session:
             session.add(models.Nikki(user_id=1, date=datetime.date(2020, 1, 1), text="✅ 読書\n✅ 読書"))
             session.commit()
-        habits.count_habit_keyword_continuations()
+        habits.recalculate_habit_keyword_total_counts()
         doc["habits"]["a"]["isPublic"] = True
         self.sync(doc)
         self.assertEqual(doc["habitMetadata"]["a"]["totalCount"], 1)
@@ -228,8 +228,8 @@ class HabitSyncTests(unittest.TestCase):
             connection.exec_driver_sql("DROP INDEX ix_habit_keyword_user_sync_id")
             connection.exec_driver_sql("ALTER TABLE habit_keyword DROP COLUMN sync_id")
             connection.exec_driver_sql("INSERT INTO habit_keyword (id, user_id, is_public, keyword, total_count) VALUES (9, 1, 0, 'test', 7)")
-        database.create_db_and_tables()
-        database.create_db_and_tables()
+        database.create_and_migrate_database_schema()
+        database.create_and_migrate_database_schema()
         self.assertEqual([(row.id, row.total_count) for row in self.rows()], [(9, 7)])
         doc = self.sync()
         self.assertEqual(next(iter(doc["habitMetadata"].values()))["habitKeywordId"], 9)
