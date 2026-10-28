@@ -31,9 +31,9 @@ class TestMain(unittest.TestCase):
             """
         ]
         expected_results=[
-            """▶️BBBB
-▶️DDDD
-▶️EEEE"""
+            """　▶️BBBB
+　▶️DDDD
+　　▶️EEEE"""
         ]
         for testcase,expected in zip(testcases,expected_results):
             actual = extract_template_lines_with_start_icon(testcase)
