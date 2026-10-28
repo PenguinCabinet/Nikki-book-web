@@ -88,7 +88,7 @@ async def nikki_upload_zip(
 
 
 def extract_template_lines_with_start_icon(template:str):
-    template_arr=[e.lstrip() for e in template.split("\n") if "▶️" in e]
+    template_arr=[e for e in template.split("\n") if "▶️" in e]
     return "\n".join(template_arr)
 
 
